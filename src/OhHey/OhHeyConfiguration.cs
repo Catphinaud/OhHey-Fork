@@ -16,6 +16,9 @@ public class OhHeyConfiguration : IPluginConfiguration
     // Target Settings
     public bool EnableTargetNotifications { get; set; } = true;
 
+    public Dalamud.Game.Text.XivChatType TargetNotificationChatType { get; set; }
+        = Dalamud.Game.Text.XivChatType.Echo;
+
     public bool EnableTargetSoundNotification { get; set; } = false;
 
     public uint TargetSoundNotificationId { get; set; } = 1;
@@ -29,6 +32,9 @@ public class OhHeyConfiguration : IPluginConfiguration
     // Emote Settings
     public bool EnableEmoteNotifications { get; set; } = true;
 
+    public Dalamud.Game.Text.XivChatType EmoteNotificationChatType { get; set; }
+        = Dalamud.Game.Text.XivChatType.Echo;
+
     public bool EnableEmoteSoundNotification { get; set; } = false;
 
     public uint EmoteSoundNotificationId { get; set; } = 1;
@@ -39,4 +45,20 @@ public class OhHeyConfiguration : IPluginConfiguration
 
     public bool EnableEmoteNotificationInCombat { get; set; } = true;
 
+    public bool EnableEmoteChatNotificationRateLimit { get; set; } = false;
+
+    public int EmoteChatNotificationRateLimitWindowSeconds { get; set; } = 5;
+
+    public int EmoteChatNotificationRateLimitMaxCount { get; set; } = 5;
+
+    public EmoteChatNotificationRateLimitMode EmoteChatNotificationRateLimitMode { get; set; }
+        = EmoteChatNotificationRateLimitMode.FixedWindow;
+
+    public bool EnableEmoteOverlayWindow { get; set; } = false;
+}
+
+public enum EmoteChatNotificationRateLimitMode
+{
+    RollingWindow = 0,
+    FixedWindow = 1
 }

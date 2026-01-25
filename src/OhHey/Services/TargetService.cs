@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
@@ -11,6 +12,7 @@ namespace OhHey.Services;
 
 public sealed class TargetService : IDisposable
 {
+    private const string ChatSenderName = "OhHey";
     private readonly IPluginLog _logger;
     private readonly TargetListener _targetListener;
     private readonly IChatGui _chatGui;
@@ -119,7 +121,7 @@ public sealed class TargetService : IDisposable
             .Append(evt.SeName)
             .AddText(" is targeting you!")
             .Build();
-        _chatGui.Print(chatMessage);
+        PrintChatMessage(_configService.Configuration.TargetNotificationChatType, chatMessage);
 
         if (_configService.Configuration.EnableTargetSoundNotification)
         {
@@ -131,5 +133,30 @@ public sealed class TargetService : IDisposable
     {
         _targetListener.Target -= OnTarget;
         _targetListener.TargetRemoved -= OnTargetRemoved;
+    }
+
+    private void PrintChatMessage(Dalamud.Game.Text.XivChatType chatType, SeString message)
+    {
+        if (chatType == Dalamud.Game.Text.XivChatType.None)
+        {
+            _chatGui.Print(message);
+            return;
+        }
+
+        _chatGui.Print(new XivChatEntry
+        {
+            Message = message,
+            Type = chatType,
+            Name = RequiresChatSenderName(chatType) ? ChatSenderName : string.Empty
+        });
+    }
+
+    private static bool RequiresChatSenderName(Dalamud.Game.Text.XivChatType chatType)
+    {
+        return chatType != Dalamud.Game.Text.XivChatType.Notice
+               && chatType != Dalamud.Game.Text.XivChatType.Echo
+               && chatType != Dalamud.Game.Text.XivChatType.Urgent
+               && chatType != Dalamud.Game.Text.XivChatType.SystemMessage
+               && chatType != Dalamud.Game.Text.XivChatType.Debug;
     }
 }

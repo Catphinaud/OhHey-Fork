@@ -31,6 +31,7 @@ public sealed class OhHeyPlugin : IDalamudPlugin
             .AddDalamudService<IChatGui>()
             .AddDalamudService<ICommandManager>()
             .AddDalamudService<ICondition>()
+            .AddDalamudService<ITextureProvider>()
             .AddSingleton<ConfigurationService>()
             .AddSingleton<EmoteListener>()
             .AddSingleton<EmoteService>()
@@ -38,6 +39,7 @@ public sealed class OhHeyPlugin : IDalamudPlugin
             .AddSingleton<TargetService>()
             .AddDalamudWindow<ConfigurationWindow>()
             .AddDalamudWindow<MainWindow>()
+            .AddDalamudWindow<EmoteOverlayWindow>()
             .AddSingleton<KeyedWindowService>()
             .AddSingleton<WindowService>()
             .AddSingleton<ChatCommandService>();

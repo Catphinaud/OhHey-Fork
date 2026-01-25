@@ -9,6 +9,7 @@ namespace OhHey.Listeners;
 public record EmoteEvent(
     ReadOnlySeString EmoteName,
     ushort EmoteId,
+    uint EmoteIconId,
     SeString InitiatorName,
     ulong InitiatorId,
     SeString? TargetName,
