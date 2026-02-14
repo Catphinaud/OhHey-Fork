@@ -1,0 +1,24 @@
+﻿// Copyright (c) 2025 MeiHasCrashed
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+using Dalamud.Game;
+
+namespace OhHey.Services;
+
+public interface IEmoteLogMessageService
+{
+    /// <summary>
+    /// Builds (or returns) a cache mapping emote row id -> evaluated (English) targeted log message text.
+    /// </summary>
+    IReadOnlyDictionary<uint, string> GetTargetedLogMessagesEnglish();
+
+    /// <summary>
+    /// Tries to get the evaluated (English) targeted log message text for a specific emote.
+    /// </summary>
+    bool TryGetTargetedLogMessageEnglish(uint emoteRowId, out string message);
+
+    /// <summary>
+    /// Clears the internal cache so it will be rebuilt on next access.
+    /// </summary>
+    void InvalidateCache();
+}

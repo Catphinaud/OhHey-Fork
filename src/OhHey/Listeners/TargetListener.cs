@@ -66,8 +66,17 @@ public sealed class TargetListener : IDisposable
         foreach (var targetingPlayer in targetingPlayers.Where(targetingPlayer => !_lastTargetingPlayers.Contains(targetingPlayer.GameObjectId)))
         {
             _lastTargetingPlayers.Add(targetingPlayer.GameObjectId);
-            var targetEvent = new TargetEvent(targetingPlayer.GameObjectId, targetingPlayer.Name.ToString(),
-                targetingPlayer.Name, targetingPlayer.GameObjectId == currentPlayer.GameObjectId, DateTime.Now);
+
+            uint worldId = targetingPlayer is IPlayerCharacter playerCharacter ? playerCharacter.HomeWorld.RowId : 0u;
+
+            var targetEvent = new TargetEvent(
+                GameObjectId: targetingPlayer.GameObjectId,
+                Name: targetingPlayer.Name.ToString(),
+                SeName: targetingPlayer.Name,
+                WorldId: worldId,
+                IsSelf: targetingPlayer.GameObjectId == currentPlayer.GameObjectId,
+                Timestamp: DateTime.Now
+            );
             OnTarget(targetEvent);
         }
 

@@ -55,6 +55,8 @@ public class OhHeyConfiguration : IPluginConfiguration
         = EmoteChatNotificationRateLimitMode.FixedWindow;
 
     public bool EnableEmoteOverlayWindow { get; set; } = false;
+
+    public bool ShowWorldNameInChatNotifications { get; set; } = true;
 }
 
 public enum EmoteChatNotificationRateLimitMode

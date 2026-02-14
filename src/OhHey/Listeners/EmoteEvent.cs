@@ -12,8 +12,10 @@ public record EmoteEvent(
     uint EmoteIconId,
     SeString InitiatorName,
     ulong InitiatorId,
+    uint InitiatorWorldId,
     SeString? TargetName,
     ulong TargetId,
     bool TargetSelf,
     bool InitiatorIsSelf,
-    DateTime Timestamp);
+    DateTime Timestamp
+);

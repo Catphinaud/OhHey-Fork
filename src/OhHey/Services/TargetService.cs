@@ -4,6 +4,7 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using OhHey.Listeners;
@@ -19,13 +20,15 @@ public sealed class TargetService : IDisposable
     private readonly ICondition _condition;
     private readonly ConfigurationService _configService;
     private readonly IObjectTable _objectTable;
+    private readonly IPlayerState _playerState;
+    private readonly Dictionary<uint, string> _worlds;
 
     public List<TargetEvent> CurrentTargets { get; } = [];
 
     public List<TargetEvent> TargetHistory { get; } = [];
 
     public TargetService(IPluginLog logger, TargetListener targetListener, IChatGui chatGui,
-        ConfigurationService configService, ICondition condition, IObjectTable objectTable)
+        ConfigurationService configService, ICondition condition, IObjectTable objectTable, IPlayerState playerState, IDataManager dataManager)
     {
         _logger = logger;
         _targetListener = targetListener;
@@ -33,6 +36,10 @@ public sealed class TargetService : IDisposable
         _configService = configService;
         _condition = condition;
         _objectTable = objectTable;
+        _playerState = playerState;
+        _worlds = dataManager
+            .GetExcelSheet<Lumina.Excel.Sheets.World>()
+            .ToDictionary(world => world.RowId, world => world.Name.ToString());
 
         _targetListener.Target += OnTarget;
         _targetListener.TargetRemoved += OnTargetRemoved;
@@ -115,13 +122,25 @@ public sealed class TargetService : IDisposable
 
     private void SendNotification(TargetEvent evt)
     {
-        var chatMessage = new SeStringBuilder()
-            .AddUiForeground("[Oh Hey!] ", 537)
-            .AddUiForegroundOff()
-            .Append(evt.SeName)
-            .AddText(" is targeting you!")
-            .Build();
-        PrintChatMessage(_configService.Configuration.TargetNotificationChatType, chatMessage);
+        var builder = new SeStringBuilder();
+
+        builder.AddUiForeground("[Oh Hey!] ", 537);
+        builder.AddUiForegroundOff();
+        builder.Add(new PlayerPayload(evt.SeName.TextValue, evt.WorldId));
+
+        if (
+            _configService.Configuration.ShowWorldNameInChatNotifications &&
+            _playerState.HomeWorld.RowId != evt.WorldId &&
+            _worlds.TryGetValue(evt.WorldId, out string? worldName) &&
+            !string.IsNullOrEmpty(worldName)
+        ) {
+            builder.AddIcon(BitmapFontIcon.CrossWorld);
+            builder.AddText(worldName);
+        }
+
+        builder.AddText(" is targeting you!");
+
+        PrintChatMessage(_configService.Configuration.TargetNotificationChatType,  builder.Build());
 
         if (_configService.Configuration.EnableTargetSoundNotification)
         {
@@ -135,9 +154,9 @@ public sealed class TargetService : IDisposable
         _targetListener.TargetRemoved -= OnTargetRemoved;
     }
 
-    private void PrintChatMessage(Dalamud.Game.Text.XivChatType chatType, SeString message)
+    private void PrintChatMessage(XivChatType chatType, SeString message)
     {
-        if (chatType == Dalamud.Game.Text.XivChatType.None)
+        if (chatType == XivChatType.None)
         {
             _chatGui.Print(message);
             return;
@@ -151,12 +170,12 @@ public sealed class TargetService : IDisposable
         });
     }
 
-    private static bool RequiresChatSenderName(Dalamud.Game.Text.XivChatType chatType)
+    private static bool RequiresChatSenderName(XivChatType chatType)
     {
-        return chatType != Dalamud.Game.Text.XivChatType.Notice
-               && chatType != Dalamud.Game.Text.XivChatType.Echo
-               && chatType != Dalamud.Game.Text.XivChatType.Urgent
-               && chatType != Dalamud.Game.Text.XivChatType.SystemMessage
-               && chatType != Dalamud.Game.Text.XivChatType.Debug;
+        return chatType != XivChatType.Notice
+               && chatType != XivChatType.Echo
+               && chatType != XivChatType.Urgent
+               && chatType != XivChatType.SystemMessage
+               && chatType != XivChatType.Debug;
     }
 }

@@ -4,6 +4,7 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using OhHey;
@@ -26,25 +27,32 @@ public sealed class EmoteService : IDisposable
     private readonly IChatGui _chatGui;
     private readonly ConfigurationService _configService;
     private readonly ICondition _condition;
+    private readonly IPlayerState _playerState;
     private readonly Dictionary<ushort, Queue<DateTime>> _emoteChatNotificationTimes = new();
     private readonly Dictionary<ushort, FixedWindowState> _emoteChatFixedWindowState = new();
     private int _emoteChatNotificationsSuppressed;
     private ushort? _lastEmoteId;
     private string? _lastEmoteName;
     private readonly LinkedList<EmoteEvent> _recentEmotes = new();
+    private readonly Dictionary<uint, string> _worlds;
 
     public LinkedList<EmoteEvent> EmoteHistory { get; } = [];
 
     public EmoteService(IPluginLog logger, EmoteListener emoteListener, IChatGui chatGui,
-        ConfigurationService configService, ICondition condition)
+        ConfigurationService configService, ICondition condition, IPlayerState playerState, IDataManager dataManager)
     {
         _logger = logger;
         _emoteListener = emoteListener;
         _chatGui = chatGui;
         _configService = configService;
         _condition = condition;
+        _playerState = playerState;
+        _worlds = dataManager
+            .GetExcelSheet<Lumina.Excel.Sheets.World>()
+            .ToDictionary(world => world.RowId, world => world.Name.ToString());
 
         _emoteListener.Emote += OnEmote;
+        _emoteListener.ClickEmoteLink += OnClickedEmoteLink;
     }
 
     private void OnEmote(object? sender, EmoteEvent e)
@@ -90,16 +98,26 @@ public sealed class EmoteService : IDisposable
         if (e.InitiatorIsSelf && !_configService.Configuration.NotifyOnSelfEmote) return;
         if (!_configService.Configuration.EnableEmoteNotificationInCombat && _condition[ConditionFlag.InCombat]) return;
         if (!TryConsumeEmoteChatRateLimitSlot(e)) return;
-        var chatMessage = new SeStringBuilder()
-            .AddUiForeground("[Oh Hey!] ", 537)
-            .AddUiForegroundOff()
-            .Append(e.InitiatorName)
-            .AddText($" used ")
-            .AddUiForeground(e.EmoteName.ToString(), 1)
-            .AddUiForegroundOff()
-            .AddText(" on you!")
-            .Build();
-        PrintChatMessage(_configService.Configuration.EmoteNotificationChatType, chatMessage);
+        var builder = new SeStringBuilder();
+        builder.AddUiForeground("[Oh Hey!] ", 537);
+        builder.AddUiForegroundOff();
+        builder.Add(new PlayerPayload(e.InitiatorName.ToString(), e.InitiatorWorldId));
+
+        if (
+            _configService.Configuration.ShowWorldNameInChatNotifications &&
+            _playerState.HomeWorld.RowId != e.InitiatorWorldId &&
+            _worlds.TryGetValue(e.InitiatorWorldId, out string? worldName) &&
+            !string.IsNullOrEmpty(worldName)
+        ) {
+            builder.AddIcon(BitmapFontIcon.CrossWorld);
+            builder.AddText(worldName);
+        }
+
+        builder.AddText(" used ");
+        builder.AddUiForeground(e.EmoteName.ToString(), 1);
+        builder.AddUiForegroundOff();
+        builder.AddText(" on you!");
+        PrintChatMessage(_configService.Configuration.EmoteNotificationChatType, builder.Build());
 
         if (!_configService.Configuration.EnableEmoteSoundNotification) return;
         UIGlobals.PlayChatSoundEffect(_configService.Configuration.EmoteSoundNotificationId);
@@ -166,6 +184,7 @@ public sealed class EmoteService : IDisposable
     public void Dispose()
     {
         _emoteListener.Emote -= OnEmote;
+        _emoteListener.ClickEmoteLink -= OnClickedEmoteLink;
     }
 
     private bool ShouldTrackEmote(EmoteEvent e)
@@ -289,6 +308,11 @@ public sealed class EmoteService : IDisposable
                && chatType != Dalamud.Game.Text.XivChatType.Urgent
                && chatType != Dalamud.Game.Text.XivChatType.SystemMessage
                && chatType != Dalamud.Game.Text.XivChatType.Debug;
+    }
+
+    private void OnClickedEmoteLink(object? sender, LinkClickEvent e)
+    {
+
     }
 
     internal unsafe void ReplayEmote(EmoteEvent emote)
