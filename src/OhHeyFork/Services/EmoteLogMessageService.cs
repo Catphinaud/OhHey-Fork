@@ -8,7 +8,7 @@ using Lumina.Excel.Sheets;
 using Lumina.Text.Expressions;
 using Lumina.Text.ReadOnly;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class EmoteLogMessageService : IEmoteLogMessageService
 {

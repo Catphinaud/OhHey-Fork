@@ -3,7 +3,7 @@
 
 using Dalamud.Game;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public interface IEmoteLogMessageService
 {

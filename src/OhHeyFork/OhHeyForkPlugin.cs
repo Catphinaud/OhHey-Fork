@@ -5,18 +5,18 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
-using OhHey.Core.IoC;
-using OhHey.Listeners;
-using OhHey.Services;
-using OhHey.UI;
+using OhHeyFork.Core.IoC;
+using OhHeyFork.Listeners;
+using OhHeyFork.Services;
+using OhHeyFork.UI;
 
-namespace OhHey;
+namespace OhHeyFork;
 
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
-public sealed class OhHeyPlugin : IDalamudPlugin
+public sealed class OhHeyForkPlugin : IDalamudPlugin
 {
     private readonly IServiceProvider _provider;
-    public OhHeyPlugin(IDalamudPluginInterface pluginInterface)
+    public OhHeyForkPlugin(IDalamudPluginInterface pluginInterface)
     {
         var services = new ServiceCollection();
         services

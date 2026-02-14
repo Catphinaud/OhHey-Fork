@@ -29,8 +29,8 @@ The documentation for all plugin settings can be found here:
 
 | Command           | Description                                  |
 |-------------------|----------------------------------------------|
-| `/ohhey`          | Opens the main window                        |
-| `/ohhey main`     | Opens the main window                        |
-| `/ohhey config`   | Opens the settings window                    |
-| `/ohhey settings` | Opens the settings window                    |
-| `/ohhey help`     | Shows a help message containing all commands |
+| `/ohheyfork`          | Opens the main window                        |
+| `/ohheyfork main`     | Opens the main window                        |
+| `/ohheyfork config`   | Opens the settings window                    |
+| `/ohheyfork settings` | Opens the settings window                    |
+| `/ohheyfork help`     | Shows a help message containing all commands |

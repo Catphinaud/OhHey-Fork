@@ -9,7 +9,7 @@ using Dalamud.Plugin.Services;
 using Dalamud.Utility.Signatures;
 using Lumina.Excel.Sheets;
 
-namespace OhHey.Listeners;
+namespace OhHeyFork.Listeners;
 
 public sealed class EmoteListener : IDisposable
 {

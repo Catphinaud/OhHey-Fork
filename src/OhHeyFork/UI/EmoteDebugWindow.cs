@@ -6,10 +6,10 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using JetBrains.Annotations;
-using OhHey.Listeners;
-using OhHey.Services;
+using OhHeyFork.Listeners;
+using OhHeyFork.Services;
 
-namespace OhHey.UI;
+namespace OhHeyFork.UI;
 
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 public sealed class EmoteDebugWindow : Window

@@ -8,10 +8,10 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 using JetBrains.Annotations;
-using OhHey.Listeners;
-using OhHey.Services;
+using OhHeyFork.Listeners;
+using OhHeyFork.Services;
 
-namespace OhHey.UI;
+namespace OhHeyFork.UI;
 
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 public sealed class EmoteOverlayWindow : Window, IDisposable
@@ -90,7 +90,7 @@ public sealed class EmoteOverlayWindow : Window, IDisposable
         _configService.ConfigurationChanged -= OnConfigurationChanged;
     }
 
-    private void OnConfigurationChanged(object? sender, OhHeyConfiguration configuration)
+    private void OnConfigurationChanged(object? sender, OhHeyForkConfiguration configuration)
     {
         IsOpen = configuration.EnableEmoteOverlayWindow;
     }

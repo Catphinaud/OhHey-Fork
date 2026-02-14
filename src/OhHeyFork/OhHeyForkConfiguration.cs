@@ -3,10 +3,10 @@
 
 using Dalamud.Configuration;
 
-namespace OhHey;
+namespace OhHeyFork;
 
 [Serializable]
-public class OhHeyConfiguration : IPluginConfiguration
+public class OhHeyForkConfiguration : IPluginConfiguration
 {
     // General Settings
     public int Version { get; set; } = 0;

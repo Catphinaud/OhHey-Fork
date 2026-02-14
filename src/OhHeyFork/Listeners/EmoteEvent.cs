@@ -4,7 +4,7 @@
 using Dalamud.Game.Text.SeStringHandling;
 using Lumina.Text.ReadOnly;
 
-namespace OhHey.Listeners;
+namespace OhHeyFork.Listeners;
 
 public record EmoteEvent(
     ReadOnlySeString EmoteName,

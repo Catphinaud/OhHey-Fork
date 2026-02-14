@@ -8,9 +8,9 @@ using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using JetBrains.Annotations;
-using OhHey.Services;
+using OhHeyFork.Services;
 
-namespace OhHey.UI;
+namespace OhHeyFork.UI;
 
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 public sealed class MainWindow : Window, IDisposable
@@ -129,7 +129,7 @@ public sealed class MainWindow : Window, IDisposable
         return ImGui.SmallButton(label);
     }
 
-    private void OnConfigurationChanged(object? _, OhHeyConfiguration configuration)
+    private void OnConfigurationChanged(object? _, OhHeyForkConfiguration configuration)
     {
         RespectCloseHotkey = configuration.EnableMainWindowCloseHotkey;
     }

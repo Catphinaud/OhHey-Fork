@@ -3,9 +3,9 @@
 
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using OhHey.UI;
+using OhHeyFork.UI;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class KeyedWindowService(IPluginLog logger, IDalamudPluginInterface pluginInterface, MainWindow mainWindow,
     ConfigurationWindow configWindow) : IDisposable

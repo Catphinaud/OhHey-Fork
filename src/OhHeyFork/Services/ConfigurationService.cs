@@ -4,16 +4,16 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public class ConfigurationService
 {
     private readonly IDalamudPluginInterface _pluginInterface;
     private readonly IPluginLog _logger;
 
-    public OhHeyConfiguration Configuration { get; }
+    public OhHeyForkConfiguration Configuration { get; }
 
-    public event EventHandler<OhHeyConfiguration>? ConfigurationChanged;
+    public event EventHandler<OhHeyForkConfiguration>? ConfigurationChanged;
 
     public ConfigurationService(IPluginLog logger, IDalamudPluginInterface pluginInterface)
     {
@@ -22,11 +22,11 @@ public class ConfigurationService
         Configuration = LoadConfiguration();
     }
 
-    private OhHeyConfiguration LoadConfiguration()
+    private OhHeyForkConfiguration LoadConfiguration()
     {
-        if (_pluginInterface.GetPluginConfig() is not OhHeyConfiguration config)
+        if (_pluginInterface.GetPluginConfig() is not OhHeyForkConfiguration config)
         {
-            config = new OhHeyConfiguration();
+            config = new OhHeyForkConfiguration();
             _logger.Info("No existing configuration found. Creating new configuration with version {ConfigurationVersion}.",
                 config.Version);
             _pluginInterface.SavePluginConfig(config);

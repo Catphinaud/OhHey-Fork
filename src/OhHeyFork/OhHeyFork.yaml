@@ -5,12 +5,12 @@ description: |-
   This plugin notifies you when someone targets you, or emotes at you.
 
   Commands:
-    /ohhey - Opens the main window
-    /ohhey main - Opens the main window
-    /ohhey [config|settings] - Opens the settings window
-    /ohhey help - Displays the help message (will also display on invalid sub-commands)
+    /ohheyfork - Opens the main window
+    /ohheyfork main - Opens the main window
+    /ohheyfork [config|settings] - Opens the settings window
+    /ohheyfork help - Displays the help message (will also display on invalid sub-commands)
 
-repo_url: https://github.com/MeiHasCrashed/OhHey
+repo_url: https://github.com/Catphinaud/OhHey-Fork
 icon_url: https://raw.githubusercontent.com/MeiHasCrashed/OhHey/refs/heads/main/src/OhHey/images/icon.png
 tags:
   - notification

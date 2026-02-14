@@ -10,17 +10,17 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using JetBrains.Annotations;
-using OhHey;
-using OhHey.Services;
+using OhHeyFork;
+using OhHeyFork.Services;
 
-namespace OhHey.UI;
+namespace OhHeyFork.UI;
 
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 public class ConfigurationWindow : Window
 {
     private readonly ConfigurationService _configService;
     private readonly EmoteService _emoteService;
-    private OhHeyConfiguration Config => _configService.Configuration;
+    private OhHeyForkConfiguration Config => _configService.Configuration;
 
     private static readonly (string Label, XivChatType Type)[] ChatTypeOptions =
     [

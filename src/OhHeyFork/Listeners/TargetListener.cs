@@ -5,7 +5,7 @@ using System.Diagnostics;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Plugin.Services;
 
-namespace OhHey.Listeners;
+namespace OhHeyFork.Listeners;
 
 public sealed class TargetListener : IDisposable
 {

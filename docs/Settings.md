@@ -29,7 +29,7 @@
 ## Overview
 <sup>[[Back to top]](#settings)</sup>
 
-You can open the settings window by using the command `/ohhey settings` (or `/ohhey config` if you prefer),
+You can open the settings window by using the command `/ohheyfork settings` (or `/ohheyfork config` if you prefer),
 by pressing the cogwheel in the tile bar of the main window or by using the `Settings` button in the plugin installer (`/xlplugins`).
 
 The settings window has 3 categories:

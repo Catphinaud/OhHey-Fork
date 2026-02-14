@@ -5,14 +5,14 @@ using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class WindowService : IDisposable
 {
     private readonly IDalamudPluginInterface _pluginInterface;
     private readonly IPluginLog _logger;
     private readonly KeyedWindowService _keyedWindowService;
-    private readonly WindowSystem _windowSystem = new("OhHey");
+    private readonly WindowSystem _windowSystem = new("OhHeyFork");
 
     public WindowService(IDalamudPluginInterface pluginInterface, IPluginLog logger,
         KeyedWindowService keyedWindowService, IEnumerable<Window> windows)

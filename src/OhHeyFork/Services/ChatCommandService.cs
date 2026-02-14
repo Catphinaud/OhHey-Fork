@@ -4,13 +4,13 @@
 using Dalamud.Game.Command;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Plugin.Services;
-using OhHey.UI;
+using OhHeyFork.UI;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class ChatCommandService : IDisposable
 {
-    private const string CommandName = "/ohhey";
+    private const string CommandName = "/ohheyfork";
     private readonly ICommandManager _commandManager;
     private readonly IChatGui _chatGui;
     private readonly IPluginLog _logger;
@@ -29,9 +29,9 @@ public sealed class ChatCommandService : IDisposable
 
         _commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the OhHey main window if used by itself or when using '/ohhey main'.\n" +
-                          "Use '/ohhey config' to open the configuration window.\n" +
-                          "Use '/ohhey debug' to open the emote log message debug window.",
+            HelpMessage = "Opens the OhHeyFork main window if used by itself or when using '/ohheyfork main'.\n" +
+                          "Use '/ohheyfork config' to open the configuration window.\n" +
+                          "Use '/ohheyfork debug' to open the emote log message debug window.",
         });
     }
 
@@ -67,11 +67,11 @@ public sealed class ChatCommandService : IDisposable
         var builder = new SeStringBuilder();
         builder
             .AddUiForeground("[Oh Hey!] Chat Commands: \n\n", 537).AddUiForegroundOff()
-            .AddText("- ").AddUiForeground("/ohhey", 37).AddUiForegroundOff().AddText(" Opens the main window.\n")
-            .AddText("- ").AddUiForeground("/ohhey main", 37).AddUiForegroundOff().AddText(" Opens the main window.\n")
-            .AddText("- ").AddUiForeground("/ohhey [config|settings]", 37).AddUiForegroundOff().AddText(" Opens the configuration window.\n")
-            .AddText("- ").AddUiForeground("/ohhey debug", 37).AddUiForegroundOff().AddText(" Opens the emote debug window.\n")
-            .AddText("- ").AddUiForeground("/ohhey help", 37).AddUiForegroundOff().AddText(" Shows this help message.");
+            .AddText("- ").AddUiForeground("/ohheyfork", 37).AddUiForegroundOff().AddText(" Opens the main window.\n")
+            .AddText("- ").AddUiForeground("/ohheyfork main", 37).AddUiForegroundOff().AddText(" Opens the main window.\n")
+            .AddText("- ").AddUiForeground("/ohheyfork [config|settings]", 37).AddUiForegroundOff().AddText(" Opens the configuration window.\n")
+            .AddText("- ").AddUiForeground("/ohheyfork debug", 37).AddUiForegroundOff().AddText(" Opens the emote debug window.\n")
+            .AddText("- ").AddUiForeground("/ohheyfork help", 37).AddUiForegroundOff().AddText(" Shows this help message.");
         _chatGui.Print(builder.Build());
     }
 

@@ -3,7 +3,7 @@
     <PropertyGroup>
         <Version>0.0.0.6</Version>
         <Description>Ever wanted to get notified when someone targets you or emotes at you? Now you can !</Description>
-        <PackageProjectUrl>https://github.com/MeiHasCrashed/OhHey</PackageProjectUrl>
+        <PackageProjectUrl>https://github.com/MeiHasCrashed/OhHeyFork</PackageProjectUrl>
         <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
         <IsPackable>false</IsPackable>
         <ImplicitUsings>true</ImplicitUsings>
@@ -13,7 +13,7 @@
 
     <ItemGroup>
       <Content Include="images\icon.png" />
-      <Content Include="OhHey.yaml" />
+      <Content Include="OhHeyFork.yaml" />
     </ItemGroup>
 
     <ItemGroup>

@@ -7,13 +7,13 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
-using OhHey.Listeners;
+using OhHeyFork.Listeners;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class TargetService : IDisposable
 {
-    private const string ChatSenderName = "OhHey";
+    private const string ChatSenderName = "OhHeyFork";
     private readonly IPluginLog _logger;
     private readonly TargetListener _targetListener;
     private readonly IChatGui _chatGui;

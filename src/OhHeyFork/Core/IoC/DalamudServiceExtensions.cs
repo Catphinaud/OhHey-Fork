@@ -4,7 +4,7 @@
 using Dalamud.Interface.Windowing;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace OhHey.Core.IoC;
+namespace OhHeyFork.Core.IoC;
 
 public static class DalamudServiceExtensions
 {

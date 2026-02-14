@@ -18,7 +18,7 @@
 ## Overview
 <sup>[[Back to top]](#main-window)</sup>
 
-You can open the main window by either using the command `/ohhey` (or `/ohhey main` if you prefer)
+You can open the main window by either using the command `/ohheyfork` (or `/ohheyfork main` if you prefer)
 or by using the "Open" button in the plugin installer (`/xlplugins`).
 
 The main window has two tabs:

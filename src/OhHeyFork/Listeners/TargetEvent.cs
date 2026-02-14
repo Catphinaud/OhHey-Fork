@@ -3,7 +3,7 @@
 
 using Dalamud.Game.Text.SeStringHandling;
 
-namespace OhHey.Listeners;
+namespace OhHeyFork.Listeners;
 
 public record TargetEvent(
     ulong GameObjectId,

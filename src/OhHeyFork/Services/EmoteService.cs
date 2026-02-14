@@ -7,15 +7,15 @@ using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
-using OhHey;
-using OhHey.Listeners;
+using OhHeyFork;
+using OhHeyFork.Listeners;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 
-namespace OhHey.Services;
+namespace OhHeyFork.Services;
 
 public sealed class EmoteService : IDisposable
 {
-    private const string ChatSenderName = "OhHey";
+    private const string ChatSenderName = "OhHeyFork";
     public const int MaxEmoteHistory = 10;
     private const int MinRateLimitWindowSeconds = 1;
     private const int MaxRateLimitWindowSeconds = 3600;

@@ -6,7 +6,7 @@ using Dalamud.Plugin;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace OhHey.Core.IoC;
+namespace OhHeyFork.Core.IoC;
 
 internal class DalamudServiceFactory<T>
 {
