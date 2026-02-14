@@ -3,6 +3,7 @@
 
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Text.SeStringHandling;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility.Signatures;
@@ -12,11 +13,23 @@ namespace OhHey.Listeners;
 
 public sealed class EmoteListener : IDisposable
 {
+    private const int DefaultReplayLinkTtlMinutes = 5;
+    private const int DefaultReplayLinkMaxEntries = 64;
+    private const uint ReplayLinkCommandIndexStart = 20_000;
+
     private readonly IPluginLog _logger;
     private readonly IObjectTable _objectTable;
     private readonly IDataManager _dataManager;
     private readonly IChatGui _chatGui;
-    private readonly Dictionary<uint, Emote> _emoteLinkCache = new();
+    private readonly Dictionary<uint, TemporaryReplayLink> _temporaryReplayLinks = new();
+    private readonly Queue<uint> _reusableReplayLinkIds = new();
+    private readonly object _replayLinkLock = new();
+    private uint _nextReplayLinkId = ReplayLinkCommandIndexStart;
+    private long _replayLinksCreated;
+    private long _replayLinksRemoved;
+    private long _replayLinksRemovedExpired;
+    private long _replayLinksRemovedEvicted;
+    private long _replayLinksClicked;
 
     public event EventHandler<EmoteEvent>? Emote;
     // replay emote
@@ -47,35 +60,142 @@ public sealed class EmoteListener : IDisposable
         _onEmoteHook.Enable();
         _logger.Debug("Emote hook initialized.");
 
-        InstallChatLinkHandlers();
     }
 
-    private void InstallChatLinkHandlers()
+    public DalamudLinkPayload AddTemporaryReplayLink(EmoteEvent emoteEvent, bool silentReplay = false, TimeSpan? ttl = null)
     {
-        var emotes = _dataManager.GetExcelSheet<Emote>();
-        uint index = 200;
-        foreach (var emote in emotes) {
-            uint commandIndex = index++;
-            _emoteLinkCache[commandIndex] = emote;
-            _chatGui.AddChatLinkHandler(commandIndex, HandleEmoteLink);
+        var now = DateTime.UtcNow;
+        var effectiveTtl = ttl ?? TimeSpan.FromMinutes(DefaultReplayLinkTtlMinutes);
+        lock (_replayLinkLock)
+        {
+            PruneTemporaryReplayLinks(now);
+
+            while (_temporaryReplayLinks.Count >= DefaultReplayLinkMaxEntries)
+            {
+                var oldest = _temporaryReplayLinks
+                    .OrderBy(entry => entry.Value.CreatedUtc)
+                    .First();
+                RemoveTemporaryReplayLink(oldest.Key, ReplayLinkRemoveReason.Evicted);
+            }
+
+            var commandIndex = _reusableReplayLinkIds.Count > 0
+                ? _reusableReplayLinkIds.Dequeue()
+                : _nextReplayLinkId++;
+
+            _temporaryReplayLinks[commandIndex] = new TemporaryReplayLink(
+                emoteEvent.InitiatorId,
+                emoteEvent.EmoteId,
+                silentReplay,
+                now,
+                effectiveTtl);
+            _replayLinksCreated++;
+            return _chatGui.AddChatLinkHandler(commandIndex, HandleReplayLinkClick);
         }
     }
 
-    private void HandleEmoteLink(uint commandIndex, SeString source)
+    private void HandleReplayLinkClick(uint commandIndex, SeString source)
     {
-        if (!_emoteLinkCache.TryGetValue(commandIndex, out var emote)) {
-            _logger.Warning("Received chat link with unknown command index {CommandIndex}. Ignoring.", commandIndex);
+        TemporaryReplayLink replayLink;
+        lock (_replayLinkLock)
+        {
+            if (!_temporaryReplayLinks.TryGetValue(commandIndex, out replayLink))
+            {
+                _logger.Warning("Received chat link with unknown command index {CommandIndex}. Ignoring.", commandIndex);
+                return;
+            }
+
+            var now = DateTime.UtcNow;
+            if (replayLink.IsExpired(now))
+            {
+                RemoveTemporaryReplayLink(commandIndex, ReplayLinkRemoveReason.Expired);
+                return;
+            }
+
+            _replayLinksClicked++;
+        }
+
+        try
+        {
+            var handler = ClickEmoteLink;
+            handler?.Invoke(this, new LinkClickEvent(
+                replayLink.InitiatorId,
+                DateTime.UtcNow - replayLink.CreatedUtc,
+                replayLink.EmoteId,
+                replayLink.SilentReplay));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Error invoking ReplayEmoteTargeted event handlers.");
+        }
+    }
+
+    private void PruneTemporaryReplayLinks(DateTime nowUtc)
+    {
+        if (_temporaryReplayLinks.Count == 0)
+        {
             return;
         }
 
-        try {
-            // Replay
-            // We need to handle where the link might be outdated, so we need to be able to handle that gracefully.
-            // Each emote needs like 3 circular commandIndex so we can tell who sent it as we can't add too many Link Handlers and they need to be registered pre linking.
-            // And then removed after some time to prevent memory leak, but we can just keep a cache of them and clear it every now and then.
-            // So maybe we can remove them after like 5 minutes or something, but we can just keep a cache of them and clear it every now and then.
-        } catch (Exception ex) {
-            _logger.Error(ex, "Error invoking ReplayEmoteTargeted event handlers.");
+        var expiredIds = _temporaryReplayLinks
+            .Where(entry => entry.Value.IsExpired(nowUtc))
+            .Select(entry => entry.Key)
+            .ToArray();
+
+        foreach (var commandIndex in expiredIds)
+        {
+            RemoveTemporaryReplayLink(commandIndex, ReplayLinkRemoveReason.Expired);
+        }
+    }
+
+    private void RemoveTemporaryReplayLink(uint commandIndex, ReplayLinkRemoveReason reason = ReplayLinkRemoveReason.Manual)
+    {
+        if (!_temporaryReplayLinks.Remove(commandIndex))
+        {
+            return;
+        }
+
+        _chatGui.RemoveChatLinkHandler(commandIndex);
+        _replayLinksRemoved++;
+        if (reason == ReplayLinkRemoveReason.Expired)
+        {
+            _replayLinksRemovedExpired++;
+        }
+        else if (reason == ReplayLinkRemoveReason.Evicted)
+        {
+            _replayLinksRemovedEvicted++;
+        }
+        _reusableReplayLinkIds.Enqueue(commandIndex);
+    }
+
+    public ReplayLinkDebugSnapshot GetReplayLinkDebugSnapshot()
+    {
+        lock (_replayLinkLock)
+        {
+            var now = DateTime.UtcNow;
+            var entries = _temporaryReplayLinks
+                .OrderByDescending(entry => entry.Value.CreatedUtc)
+                .Select(entry => new ReplayLinkDebugEntry(
+                    entry.Key,
+                    entry.Value.InitiatorId,
+                    entry.Value.EmoteId,
+                    entry.Value.SilentReplay,
+                    entry.Value.CreatedUtc,
+                    entry.Value.Ttl,
+                    entry.Value.Ttl - (now - entry.Value.CreatedUtc)))
+                .ToArray();
+
+            return new ReplayLinkDebugSnapshot(
+                ActiveCount: _temporaryReplayLinks.Count,
+                ReusableIdCount: _reusableReplayLinkIds.Count,
+                NextCommandIndex: _nextReplayLinkId,
+                MaxEntries: DefaultReplayLinkMaxEntries,
+                DefaultTtl: TimeSpan.FromMinutes(DefaultReplayLinkTtlMinutes),
+                CreatedCount: _replayLinksCreated,
+                RemovedCount: _replayLinksRemoved,
+                RemovedExpiredCount: _replayLinksRemovedExpired,
+                RemovedEvictedCount: _replayLinksRemovedEvicted,
+                ClickedCount: _replayLinksClicked,
+                Entries: entries);
         }
     }
 
@@ -156,7 +276,55 @@ public sealed class EmoteListener : IDisposable
 
     public void Dispose()
     {
+        lock (_replayLinkLock)
+        {
+            foreach (var commandIndex in _temporaryReplayLinks.Keys.ToArray())
+            {
+                _chatGui.RemoveChatLinkHandler(commandIndex);
+            }
+            _temporaryReplayLinks.Clear();
+            _reusableReplayLinkIds.Clear();
+        }
         _chatGui.RemoveChatLinkHandler();
         _onEmoteHook?.Dispose();
     }
+
+    private readonly record struct TemporaryReplayLink(
+        ulong InitiatorId,
+        uint EmoteId,
+        bool SilentReplay,
+        DateTime CreatedUtc,
+        TimeSpan Ttl)
+    {
+        public bool IsExpired(DateTime nowUtc) => nowUtc - CreatedUtc > Ttl;
+    }
+
+    private enum ReplayLinkRemoveReason
+    {
+        Manual = 0,
+        Expired = 1,
+        Evicted = 2
+    }
 }
+
+public readonly record struct ReplayLinkDebugSnapshot(
+    int ActiveCount,
+    int ReusableIdCount,
+    uint NextCommandIndex,
+    int MaxEntries,
+    TimeSpan DefaultTtl,
+    long CreatedCount,
+    long RemovedCount,
+    long RemovedExpiredCount,
+    long RemovedEvictedCount,
+    long ClickedCount,
+    IReadOnlyList<ReplayLinkDebugEntry> Entries);
+
+public readonly record struct ReplayLinkDebugEntry(
+    uint CommandIndex,
+    ulong InitiatorId,
+    uint EmoteId,
+    bool SilentReplay,
+    DateTime CreatedUtc,
+    TimeSpan Ttl,
+    TimeSpan Remaining);

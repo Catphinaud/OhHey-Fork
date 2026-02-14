@@ -6,6 +6,7 @@ using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
 using JetBrains.Annotations;
+using OhHey.Listeners;
 using OhHey.Services;
 
 namespace OhHey.UI;
@@ -16,16 +17,20 @@ public sealed class EmoteDebugWindow : Window
     private const int DefaultCacheSize = 150;
 
     private readonly IEmoteLogMessageService _emoteLogMessageService;
+    private readonly EmoteListener _emoteListener;
+    private readonly EmoteService _emoteService;
 
     private readonly List<(uint EmoteRowId, string Message)> _cache = new(DefaultCacheSize);
     private string _filter = string.Empty;
     private int _cacheSize = DefaultCacheSize;
     private bool _initialized;
 
-    public EmoteDebugWindow(IEmoteLogMessageService emoteLogMessageService)
+    public EmoteDebugWindow(IEmoteLogMessageService emoteLogMessageService, EmoteListener emoteListener, EmoteService emoteService)
         : base("Oh Hey! Emote Debug##ohhey_emote_debug_window")
     {
         _emoteLogMessageService = emoteLogMessageService;
+        _emoteListener = emoteListener;
+        _emoteService = emoteService;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -107,7 +112,82 @@ public sealed class EmoteDebugWindow : Window
 
                 ImGui.TextUnformatted($"{emoteRowId}: {message}");
             }
+
+            ImGui.Separator();
+            DrawReplayLinkDebugSection(_emoteListener.GetReplayLinkDebugSnapshot());
+            ImGui.Separator();
+            DrawReplayTargetDebugSection(_emoteService.GetReplayTargetDebugSnapshot());
         }
+    }
+
+    private static void DrawReplayLinkDebugSection(ReplayLinkDebugSnapshot snapshot)
+    {
+        ImGui.TextUnformatted("Replay Link Handlers");
+        ImGui.TextUnformatted(
+            $"Active: {snapshot.ActiveCount}/{snapshot.MaxEntries} | Reusable IDs: {snapshot.ReusableIdCount} | Next ID: {snapshot.NextCommandIndex} | TTL: {snapshot.DefaultTtl.TotalMinutes:0}m");
+        ImGui.TextUnformatted(
+            $"Created: {snapshot.CreatedCount} | Removed: {snapshot.RemovedCount} | Expired: {snapshot.RemovedExpiredCount} | Evicted: {snapshot.RemovedEvictedCount} | Clicked: {snapshot.ClickedCount}");
+
+        if (!ImGui.CollapsingHeader("Active handlers", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            return;
+        }
+
+        if (snapshot.Entries.Count == 0)
+        {
+            ImGui.TextUnformatted("No active replay link handlers.");
+            return;
+        }
+
+        if (ImGui.BeginTable("##ohhey_replay_handler_table", 7, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders))
+        {
+            ImGui.TableSetupColumn("Cmd Id");
+            ImGui.TableSetupColumn("Emote");
+            ImGui.TableSetupColumn("Silent");
+            ImGui.TableSetupColumn("Initiator Id");
+            ImGui.TableSetupColumn("Created (UTC)");
+            ImGui.TableSetupColumn("TTL");
+            ImGui.TableSetupColumn("Remaining");
+            ImGui.TableHeadersRow();
+
+            foreach (var entry in snapshot.Entries)
+            {
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.CommandIndex.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.EmoteId.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.SilentReplay ? "yes" : "no");
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.InitiatorId.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(entry.CreatedUtc.ToString("HH:mm:ss"));
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{entry.Ttl.TotalSeconds:0}s");
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{Math.Max(0, entry.Remaining.TotalSeconds):0}s");
+            }
+
+            ImGui.EndTable();
+        }
+    }
+
+    private static void DrawReplayTargetDebugSection(ReplayTargetDebugSnapshot snapshot)
+    {
+        ImGui.TextUnformatted("Replay Targeting");
+        ImGui.TextUnformatted($"Current target ID: {(snapshot.CurrentTargetId?.ToString() ?? "none")}");
+        ImGui.TextUnformatted($"Last replay at (UTC): {(snapshot.LastReplayAtUtc?.ToString("HH:mm:ss") ?? "none")}");
+        ImGui.TextUnformatted($"Last replay emote ID: {(snapshot.LastReplayEmoteId?.ToString() ?? "none")}");
+        ImGui.TextUnformatted($"Requested target ID: {(snapshot.LastReplayRequestedTargetId?.ToString() ?? "none")}");
+        ImGui.TextUnformatted($"Resolved replay target ID: {(snapshot.LastReplayResolvedTargetId?.ToString() ?? "none")}");
+        ImGui.TextUnformatted($"Previous target ID: {(snapshot.LastReplayPreviousTargetId?.ToString() ?? "none")}");
+        ImGui.TextUnformatted($"Changed target for replay: {snapshot.LastReplayChangedTargetForReplay}");
+        ImGui.TextUnformatted($"Restored previous target: {snapshot.LastReplayRestoredPreviousTarget}");
+        ImGui.TextUnformatted($"Cleared target after replay: {snapshot.LastReplayClearedTarget}");
+        ImGui.TextUnformatted($"Replay executed: {snapshot.LastReplayExecuted}");
+        ImGui.TextUnformatted($"Silent replay: {snapshot.LastReplaySilent}");
+        ImGui.TextUnformatted($"Status: {snapshot.LastReplayStatus ?? "none"}");
     }
 
     private void EnsureCached(bool force = false)

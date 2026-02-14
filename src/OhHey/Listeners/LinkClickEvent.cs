@@ -7,5 +7,6 @@ public record LinkClickEvent(
     // We need the content id, how long ago, and what emote
     ulong ContentId,
     TimeSpan TimeSinceEmote,
-    uint EmoteId
+    uint EmoteId,
+    bool SilentReplay
 );

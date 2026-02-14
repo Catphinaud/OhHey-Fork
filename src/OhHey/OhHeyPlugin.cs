@@ -34,6 +34,7 @@ public sealed class OhHeyPlugin : IDalamudPlugin
             .AddDalamudService<ITextureProvider>()
             .AddDalamudService<ISeStringEvaluator>()
             .AddDalamudService<IPlayerState>()
+            .AddDalamudService<IGameConfig>()
             .AddSingleton<ConfigurationService>()
             .AddSingleton<EmoteListener>()
             .AddSingleton<EmoteService>()

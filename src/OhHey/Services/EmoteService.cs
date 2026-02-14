@@ -28,18 +28,34 @@ public sealed class EmoteService : IDisposable
     private readonly ConfigurationService _configService;
     private readonly ICondition _condition;
     private readonly IPlayerState _playerState;
+    private readonly IGameConfig _gameConfig;
+    private readonly ITargetManager _targetManager;
+    private readonly IObjectTable _objectTable;
     private readonly Dictionary<ushort, Queue<DateTime>> _emoteChatNotificationTimes = new();
     private readonly Dictionary<ushort, FixedWindowState> _emoteChatFixedWindowState = new();
+    private readonly object _replayDebugLock = new();
     private int _emoteChatNotificationsSuppressed;
     private ushort? _lastEmoteId;
     private string? _lastEmoteName;
+    private DateTime? _lastReplayAtUtc;
+    private ushort? _lastReplayEmoteId;
+    private ulong? _lastReplayRequestedTargetId;
+    private ulong? _lastReplayResolvedTargetId;
+    private ulong? _lastReplayPreviousTargetId;
+    private bool _lastReplayChangedTargetForReplay;
+    private bool _lastReplayRestoredPreviousTarget;
+    private bool _lastReplayClearedTarget;
+    private bool _lastReplayExecuted;
+    private string? _lastReplayStatus;
+    private bool _lastReplaySilent;
     private readonly LinkedList<EmoteEvent> _recentEmotes = new();
     private readonly Dictionary<uint, string> _worlds;
 
     public LinkedList<EmoteEvent> EmoteHistory { get; } = [];
 
     public EmoteService(IPluginLog logger, EmoteListener emoteListener, IChatGui chatGui,
-        ConfigurationService configService, ICondition condition, IPlayerState playerState, IDataManager dataManager)
+        ConfigurationService configService, ICondition condition, IPlayerState playerState, IDataManager dataManager,
+        ITargetManager targetManager, IObjectTable objectTable, IGameConfig gameConfig)
     {
         _logger = logger;
         _emoteListener = emoteListener;
@@ -47,6 +63,9 @@ public sealed class EmoteService : IDisposable
         _configService = configService;
         _condition = condition;
         _playerState = playerState;
+        _gameConfig = gameConfig;
+        _targetManager = targetManager;
+        _objectTable = objectTable;
         _worlds = dataManager
             .GetExcelSheet<Lumina.Excel.Sheets.World>()
             .ToDictionary(world => world.RowId, world => world.Name.ToString());
@@ -117,6 +136,21 @@ public sealed class EmoteService : IDisposable
         builder.AddUiForeground(e.EmoteName.ToString(), 1);
         builder.AddUiForegroundOff();
         builder.AddText(" on you!");
+        if (CanShowReplayLink(e.EmoteId))
+        {
+            var replayLinkPayload = _emoteListener.AddTemporaryReplayLink(e);
+            var silentReplayLinkPayload = _emoteListener.AddTemporaryReplayLink(e, silentReplay: true);
+            builder.AddText(" ");
+            builder.Add(replayLinkPayload);
+            builder.AddUiForeground($"[Replay {e.EmoteName}]", 45);
+            builder.AddUiForegroundOff();
+            builder.Add(RawPayload.LinkTerminator);
+            builder.AddText(" ");
+            builder.Add(silentReplayLinkPayload);
+            builder.AddUiForeground($"[Silent {e.EmoteName}]", 45);
+            builder.AddUiForegroundOff();
+            builder.Add(RawPayload.LinkTerminator);
+        }
         PrintChatMessage(_configService.Configuration.EmoteNotificationChatType, builder.Build());
 
         if (!_configService.Configuration.EnableEmoteSoundNotification) return;
@@ -185,6 +219,26 @@ public sealed class EmoteService : IDisposable
     {
         _emoteListener.Emote -= OnEmote;
         _emoteListener.ClickEmoteLink -= OnClickedEmoteLink;
+    }
+
+    public ReplayTargetDebugSnapshot GetReplayTargetDebugSnapshot()
+    {
+        lock (_replayDebugLock)
+        {
+            return new ReplayTargetDebugSnapshot(
+                LastReplayAtUtc: _lastReplayAtUtc,
+                LastReplayEmoteId: _lastReplayEmoteId,
+                LastReplayRequestedTargetId: _lastReplayRequestedTargetId,
+                LastReplayResolvedTargetId: _lastReplayResolvedTargetId,
+                LastReplayPreviousTargetId: _lastReplayPreviousTargetId,
+                LastReplayChangedTargetForReplay: _lastReplayChangedTargetForReplay,
+                LastReplayRestoredPreviousTarget: _lastReplayRestoredPreviousTarget,
+                LastReplayClearedTarget: _lastReplayClearedTarget,
+                LastReplayExecuted: _lastReplayExecuted,
+                LastReplayStatus: _lastReplayStatus,
+                LastReplaySilent: _lastReplaySilent,
+                CurrentTargetId: _targetManager.Target?.GameObjectId);
+        }
     }
 
     private bool ShouldTrackEmote(EmoteEvent e)
@@ -312,24 +366,124 @@ public sealed class EmoteService : IDisposable
 
     private void OnClickedEmoteLink(object? sender, LinkClickEvent e)
     {
-
+        ReplayEmoteById((ushort)e.EmoteId, e.ContentId, e.SilentReplay);
     }
 
-    internal unsafe void ReplayEmote(EmoteEvent emote)
+    private static unsafe bool CanShowReplayLink(ushort emoteId)
+    {
+        if (!AgentLobby.Instance()->IsLoggedIn)
+        {
+            return false;
+        }
+
+        return AgentEmote.Instance()->CanUseEmote(emoteId);
+    }
+
+    internal void ReplayEmote(EmoteEvent emote)
+    {
+        ReplayEmoteById(emote.EmoteId, null, false);
+    }
+
+    private unsafe void ReplayEmoteById(ushort emoteId, ulong? targetObjectId, bool silentReplay)
     {
         if (!AgentLobby.Instance()->IsLoggedIn) {
             return;
         }
 
-        if (!AgentEmote.Instance()->CanUseEmote(emote.EmoteId)) {
-            _logger.Warning("Cannot replay emote ID {EmoteId} because it is not available.", emote.EmoteId);
-            return;
+        var lastReplayAtUtc = DateTime.UtcNow;
+        var previousTargetId = _targetManager.Target?.GameObjectId;
+        var changedTargetForReplay = false;
+        var resolvedTargetId = default(ulong?);
+        var restoredPreviousTarget = false;
+        var clearedTarget = false;
+        var replayExecuted = false;
+        var status = "ok";
+        var emoteTextTypeBeforeSilentReplay = false;
+        var changedEmoteTextTypeForSilentReplay = false;
+
+        if (targetObjectId.HasValue)
+        {
+            var target = _objectTable.SearchById(targetObjectId.Value);
+            if (target is not null)
+            {
+                changedTargetForReplay = previousTargetId != target.GameObjectId;
+                resolvedTargetId = target.GameObjectId;
+                _targetManager.Target = target;
+            }
+            else
+            {
+                _logger.Warning("Could not resolve replay target object ID {TargetObjectId}; replaying emote without retarget.", targetObjectId.Value);
+                status = "target-not-found";
+            }
         }
 
         try {
-            AgentEmote.Instance()->ExecuteEmote(emote.EmoteId, addToHistory: false);
+            if (silentReplay)
+            {
+                var emoteTextType = _gameConfig.UiConfig.GetBool("EmoteTextType");
+                emoteTextTypeBeforeSilentReplay = emoteTextType;
+                if (emoteTextTypeBeforeSilentReplay)
+                {
+                    _gameConfig.UiConfig.Set("EmoteTextType", false);
+                    changedEmoteTextTypeForSilentReplay = true;
+                }
+            }
+
+            if (!AgentEmote.Instance()->CanUseEmote(emoteId)) {
+                _logger.Warning("Cannot replay emote ID {EmoteId} because it is not available.", emoteId);
+                _chatGui.Print(new SeStringBuilder()
+                    .AddUiForeground("Cannot replay emote: ", 537)
+                    .AddUiForegroundOff()
+                    .AddText($"Emote ID {emoteId} is not available.")
+                    .Build());
+                status = "emote-not-available";
+                return;
+            }
+
+            AgentEmote.Instance()->ExecuteEmote(emoteId, addToHistory: false);
+            replayExecuted = true;
         } catch (Exception exception) {
-            _logger.Error(exception, "Error replaying emote ID {EmoteId}.", emote.EmoteId);
+            _logger.Error(exception, "Error replaying emote ID {EmoteId}.", emoteId);
+            status = $"error:{exception.GetType().Name}";
+        } finally {
+            if (changedEmoteTextTypeForSilentReplay)
+            {
+                _gameConfig.UiConfig.Set("EmoteTextType", emoteTextTypeBeforeSilentReplay);
+            }
+
+            if (changedTargetForReplay)
+            {
+                if (previousTargetId.HasValue)
+                {
+                    var previousTarget = _objectTable.SearchById(previousTargetId.Value);
+                    _targetManager.Target = previousTarget;
+                    restoredPreviousTarget = previousTarget is not null;
+                    if (previousTarget is null)
+                    {
+                        status = "previous-target-missing";
+                    }
+                }
+                else
+                {
+                    _targetManager.Target = null;
+                    clearedTarget = true;
+                }
+            }
+
+            lock (_replayDebugLock)
+            {
+                _lastReplayAtUtc = lastReplayAtUtc;
+                _lastReplayEmoteId = emoteId;
+                _lastReplayRequestedTargetId = targetObjectId;
+                _lastReplayResolvedTargetId = resolvedTargetId;
+                _lastReplayPreviousTargetId = previousTargetId;
+                _lastReplayChangedTargetForReplay = changedTargetForReplay;
+                _lastReplayRestoredPreviousTarget = restoredPreviousTarget;
+                _lastReplayClearedTarget = clearedTarget;
+                _lastReplayExecuted = replayExecuted;
+                _lastReplayStatus = status;
+                _lastReplaySilent = silentReplay;
+            }
         }
     }
 }
@@ -346,3 +500,17 @@ public readonly record struct EmoteChatRateLimitStatus(
     int TrackedEmoteCount,
     string? LastEmoteName,
     EmoteChatNotificationRateLimitMode Mode);
+
+public readonly record struct ReplayTargetDebugSnapshot(
+    DateTime? LastReplayAtUtc,
+    ushort? LastReplayEmoteId,
+    ulong? LastReplayRequestedTargetId,
+    ulong? LastReplayResolvedTargetId,
+    ulong? LastReplayPreviousTargetId,
+    bool LastReplayChangedTargetForReplay,
+    bool LastReplayRestoredPreviousTarget,
+    bool LastReplayClearedTarget,
+    bool LastReplayExecuted,
+    string? LastReplayStatus,
+    bool LastReplaySilent,
+    ulong? CurrentTargetId);
