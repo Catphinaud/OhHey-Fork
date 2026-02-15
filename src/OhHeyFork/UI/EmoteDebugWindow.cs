@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using System.Numerics;
+using System.Text;
+using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
@@ -14,16 +16,18 @@ namespace OhHeyFork.UI;
 [UsedImplicitly(ImplicitUseKindFlags.InstantiatedNoFixedConstructorSignature)]
 public sealed class EmoteDebugWindow : Window
 {
-    private const int DefaultCacheSize = 150;
-
     private readonly IEmoteLogMessageService _emoteLogMessageService;
     private readonly EmoteListener _emoteListener;
     private readonly EmoteService _emoteService;
 
-    private readonly List<(uint EmoteRowId, string Message)> _cache = new(DefaultCacheSize);
     private string _filter = string.Empty;
-    private int _cacheSize = DefaultCacheSize;
-    private bool _initialized;
+    private int _previewEmoteRowId = 105;
+    private string _previewRawPayload = string.Empty;
+    private string _previewTargetName = "{Name}";
+    private string _previewYouToName = string.Empty;
+    private string _previewNameToYou = string.Empty;
+    private string _previewStatus = "Load an emote row id or paste a raw payload.";
+    private int _namePreviewCacheCount;
 
     public EmoteDebugWindow(IEmoteLogMessageService emoteLogMessageService, EmoteListener emoteListener, EmoteService emoteService)
         : base("Oh Hey! Emote Debug##ohhey_emote_debug_window")
@@ -41,60 +45,146 @@ public sealed class EmoteDebugWindow : Window
     public override void OnOpen()
     {
         base.OnOpen();
-        EnsureCached();
+        _namePreviewCacheCount = _emoteLogMessageService.GetTargetedPayloadPreviewNameCache().Count;
+        TryLoadRawPayloadForCurrentRow();
     }
 
     public override void Draw()
     {
-        if (!_initialized)
-        {
-            EnsureCached();
-        }
-
         using (ImRaii.PushId("ohhey_emote_debug"))
         {
-            ImGui.TextUnformatted("Evaluated targeted emote log messages (English)");
-
-            ImGui.SetNextItemWidth(90);
-            if (ImGui.InputInt("Cache size", ref _cacheSize))
+            if (ImGui.BeginTabBar("##ohhey_emote_debug_tabs"))
             {
-                if (_cacheSize < 1) _cacheSize = 1;
-                if (_cacheSize > 5000) _cacheSize = 5000;
-            }
+                if (ImGui.BeginTabItem("Payload Preview"))
+                {
+                    DrawTargetedPayloadPreviewSection();
+                    ImGui.EndTabItem();
+                }
 
-            ImGui.SameLine();
-            if (ImGui.Button("Rebuild cache"))
-            {
-                _emoteLogMessageService.InvalidateCache();
-                EnsureCached(force: true);
-            }
+                if (ImGui.BeginTabItem("Payload Cache"))
+                {
+                    DrawMessageCacheSection();
+                    ImGui.EndTabItem();
+                }
 
-            ImGui.SameLine();
-            if (ImGui.Button("Clear filter"))
-            {
-                _filter = string.Empty;
-            }
+                if (ImGui.BeginTabItem("Replay Links"))
+                {
+                    DrawReplayLinkDebugSection(_emoteListener.GetReplayLinkDebugSnapshot());
+                    ImGui.EndTabItem();
+                }
 
+                if (ImGui.BeginTabItem("Replay Targeting"))
+                {
+                    DrawReplayTargetDebugSection(_emoteService.GetReplayTargetDebugSnapshot());
+                    ImGui.EndTabItem();
+                }
+
+                ImGui.EndTabBar();
+            }
+        }
+    }
+
+    private void DrawTargetedPayloadPreviewSection()
+    {
+        ImGui.TextUnformatted("Preview targeted payload output using emote row data or pasted macro string.");
+        ImGui.TextUnformatted($"Prebuilt {{Name}} preview cache entries: {_namePreviewCacheCount}");
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.InputInt("Emote row id##ohhey_preview_row", ref _previewEmoteRowId))
+        {
+            if (_previewEmoteRowId < 1) _previewEmoteRowId = 1;
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Load from Emote sheet"))
+        {
+            TryLoadRawPayloadForCurrentRow();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Render"))
+        {
+            RenderPreview();
+        }
+
+        ImGui.SetNextItemWidth(280);
+        ImGui.InputText("Target placeholder##ohhey_preview_name", ref _previewTargetName, 64);
+
+        ImGui.TextUnformatted("Raw payload (formatted)");
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextMultiline(
+            "Raw payload##ohhey_preview_payload",
+            ref _previewRawPayload,
+            4096,
+            new Vector2(-1, 120));
+
+        ImGui.SameLine();
+        if (ImGui.Button("Clear preview"))
+        {
+            _previewRawPayload = string.Empty;
+            _previewYouToName = string.Empty;
+            _previewNameToYou = string.Empty;
+            _previewStatus = "Cleared.";
+        }
+
+        ImGui.TextUnformatted(_previewStatus);
+        if (!string.IsNullOrWhiteSpace(_previewYouToName))
+        {
             ImGui.Separator();
+            ImGui.TextUnformatted("You -> Name");
+            ImGui.TextWrapped(_previewYouToName);
+        }
 
-            ImGui.SetNextItemWidth(-1);
-            ImGui.InputTextWithHint("##ohhey_emote_debug_filter", "Filter (row id or substring)...", ref _filter, 200);
+        if (!string.IsNullOrWhiteSpace(_previewNameToYou))
+        {
+            ImGui.TextUnformatted("Name -> You");
+            ImGui.TextWrapped(_previewNameToYou);
+        }
+    }
 
-            ImGui.Separator();
+    private void DrawMessageCacheSection()
+    {
+        ImGui.TextUnformatted("Prebuilt targeted payload preview cache ({Name})");
 
-            var all = _emoteLogMessageService.GetTargetedLogMessagesEnglish();
-            ImGui.TextUnformatted($"Service cache entries: {all.Count}");
-            ImGui.TextUnformatted($"Window cached entries: {_cache.Count} (showing up to {_cacheSize})");
+        if (ImGui.Button("Rebuild cache"))
+        {
+            _emoteLogMessageService.InvalidateCache();
+            _namePreviewCacheCount = _emoteLogMessageService.GetTargetedPayloadPreviewNameCache().Count;
+        }
 
-            using var child = ImRaii.Child("##ohhey_emote_debug_list", new Vector2(0, 0), true);
-            if (!child) return;
+        ImGui.SameLine();
+        if (ImGui.Button("Clear filter"))
+        {
+            _filter = string.Empty;
+        }
 
-            var hasFilter = !string.IsNullOrWhiteSpace(_filter);
-            var filter = _filter.Trim();
-            var hasRowIdFilter = uint.TryParse(filter, out var rowIdFilter);
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextWithHint("##ohhey_emote_debug_filter", "Filter (row id or substring)...", ref _filter, 200);
 
-            foreach (var (emoteRowId, message) in _cache)
+        ImGui.Separator();
+
+        var all = _emoteLogMessageService.GetTargetedPayloadPreviewNameCache();
+        ImGui.TextUnformatted($"Cache entries: {all.Count}");
+
+        using var child = ImRaii.Child("##ohhey_emote_debug_list", new Vector2(0, 0), true);
+        if (!child)
+            return;
+
+        var hasFilter = !string.IsNullOrWhiteSpace(_filter);
+        var filter = _filter.Trim();
+        var hasRowIdFilter = uint.TryParse(filter, out var rowIdFilter);
+
+        if (ImGui.BeginTable("##ohhey_payload_cache_table", 3, ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
+        {
+            ImGui.TableSetupColumn("Emote Row", ImGuiTableColumnFlags.WidthFixed, 90f);
+            ImGui.TableSetupColumn("You -> Name", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableSetupColumn("Name -> You", ImGuiTableColumnFlags.WidthStretch);
+            ImGui.TableHeadersRow();
+
+            foreach (var kvp in all.OrderBy(k => k.Key))
             {
+                var emoteRowId = kvp.Key;
+                var preview = kvp.Value;
+
                 if (hasFilter)
                 {
                     if (hasRowIdFilter)
@@ -104,19 +194,23 @@ public sealed class EmoteDebugWindow : Window
                     }
                     else
                     {
-                        if (message.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        if (preview.YouToName.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0 &&
+                            preview.NameToYou.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0 &&
                             emoteRowId.ToString().IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
                             continue;
                     }
                 }
 
-                ImGui.TextUnformatted($"{emoteRowId}: {message}");
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted(emoteRowId.ToString());
+                ImGui.TableNextColumn();
+                ImGui.TextWrapped(preview.YouToName);
+                ImGui.TableNextColumn();
+                ImGui.TextWrapped(preview.NameToYou);
             }
 
-            ImGui.Separator();
-            DrawReplayLinkDebugSection(_emoteListener.GetReplayLinkDebugSnapshot());
-            ImGui.Separator();
-            DrawReplayTargetDebugSection(_emoteService.GetReplayTargetDebugSnapshot());
+            ImGui.EndTable();
         }
     }
 
@@ -190,19 +284,75 @@ public sealed class EmoteDebugWindow : Window
         ImGui.TextUnformatted($"Status: {snapshot.LastReplayStatus ?? "none"}");
     }
 
-    private void EnsureCached(bool force = false)
+    private void RenderPreview()
     {
-        if (_initialized && !force)
-            return;
-
-        _cache.Clear();
-
-        var all = _emoteLogMessageService.GetTargetedLogMessagesEnglish();
-        foreach (var kvp in all.OrderBy(k => k.Key).Take(_cacheSize))
+        if (_emoteLogMessageService.TryRenderTargetedPayloadPreview(_previewRawPayload, _previewTargetName, out var preview))
         {
-            _cache.Add((kvp.Key, kvp.Value));
+            _previewYouToName = preview.YouToName;
+            _previewNameToYou = preview.NameToYou;
+            _previewStatus = "Rendered.";
+            return;
         }
 
-        _initialized = true;
+        _previewYouToName = string.Empty;
+        _previewNameToYou = string.Empty;
+        _previewStatus = "Could not render payload.";
+    }
+
+    private void TryLoadRawPayloadForCurrentRow()
+    {
+        if (_emoteLogMessageService.TryGetTargetedPayloadPreviewNameCache((uint)_previewEmoteRowId, out var cachedPreview))
+        {
+            _previewTargetName = "{Name}";
+            _previewRawPayload = FormatRawPayload(cachedPreview.RawPayload);
+            _previewYouToName = cachedPreview.YouToName;
+            _previewNameToYou = cachedPreview.NameToYou;
+            _previewStatus = $"Loaded emote row {_previewEmoteRowId} from prebuilt {{Name}} cache.";
+            return;
+        }
+
+        if (_emoteLogMessageService.TryGetTargetedLogMessageRawPayload((uint)_previewEmoteRowId, out var rawPayload))
+        {
+            _previewRawPayload = FormatRawPayload(rawPayload);
+            _previewStatus = $"Loaded emote row {_previewEmoteRowId}.";
+            RenderPreview();
+            return;
+        }
+
+        _previewStatus = $"No targeted payload found for emote row {_previewEmoteRowId}.";
+    }
+
+    private static string FormatRawPayload(string rawPayload)
+    {
+        if (string.IsNullOrWhiteSpace(rawPayload))
+            return string.Empty;
+
+        var payload = rawPayload.Trim().Replace("\r\n", "\n", StringComparison.Ordinal);
+        var sb = new StringBuilder(payload.Length + 32);
+        var angleDepth = 0;
+
+        for (var i = 0; i < payload.Length; i++)
+        {
+            var c = payload[i];
+            if (c == '<')
+            {
+                if (angleDepth == 0 && sb.Length > 0 && sb[^1] != '\n')
+                    sb.Append('\n');
+                angleDepth++;
+                sb.Append(c);
+                continue;
+            }
+
+            sb.Append(c);
+            if (c == '>')
+            {
+                angleDepth = Math.Max(0, angleDepth - 1);
+                if (angleDepth == 0)
+                    sb.Append('\n');
+            }
+        }
+
+        var text = Regex.Replace(sb.ToString(), @"\n{2,}", "\n", RegexOptions.CultureInvariant);
+        return text.Trim();
     }
 }
