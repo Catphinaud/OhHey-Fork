@@ -141,10 +141,10 @@ public sealed class EmoteLogMessageService : IEmoteLogMessageService
                 try {
                     var objectIdStr = Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc;
                     var o = _seStringEvaluator.EvaluateObjStr(objectIdStr, 1, ClientLanguage.English);
-                    _logger.Debug("Evaluating Emote {EmoteRowId} LogMessage {LogMessageId} with ObjStr: {ObjStr}",
-                        emoteRowId,
-                        logMessageId,
-                        o);
+                    // _logger.Debug("Evaluating Emote {EmoteRowId} LogMessage {LogMessageId} with ObjStr: {ObjStr}",
+                    //     emoteRowId,
+                    //     logMessageId,
+                    //     o);
                     uint i = 0;
                     Dictionary<uint, SeStringParameter> parameters = new()
                     {

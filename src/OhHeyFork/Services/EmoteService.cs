@@ -24,7 +24,9 @@ public sealed class EmoteService : IDisposable
 
     private readonly IPluginLog _logger;
     private readonly EmoteListener _emoteListener;
+    private readonly ChatListener _chatListener;
     private readonly IChatGui _chatGui;
+    private readonly IEmoteLogMessageService _emoteLogMessageService;
     private readonly ConfigurationService _configService;
     private readonly ICondition _condition;
     private readonly IPlayerState _playerState;
@@ -53,13 +55,16 @@ public sealed class EmoteService : IDisposable
 
     public LinkedList<EmoteEvent> EmoteHistory { get; } = [];
 
-    public EmoteService(IPluginLog logger, EmoteListener emoteListener, IChatGui chatGui,
-        ConfigurationService configService, ICondition condition, IPlayerState playerState, IDataManager dataManager,
-        ITargetManager targetManager, IObjectTable objectTable, IGameConfig gameConfig)
+    public EmoteService(IPluginLog logger, EmoteListener emoteListener, ChatListener chatListener, IChatGui chatGui,
+        IEmoteLogMessageService emoteLogMessageService, ConfigurationService configService, ICondition condition,
+        IPlayerState playerState, IDataManager dataManager, ITargetManager targetManager, IObjectTable objectTable,
+        IGameConfig gameConfig)
     {
         _logger = logger;
         _emoteListener = emoteListener;
+        _chatListener = chatListener;
         _chatGui = chatGui;
+        _emoteLogMessageService = emoteLogMessageService;
         _configService = configService;
         _condition = condition;
         _playerState = playerState;
@@ -72,6 +77,7 @@ public sealed class EmoteService : IDisposable
 
         _emoteListener.Emote += OnEmote;
         _emoteListener.ClickEmoteLink += OnClickedEmoteLink;
+        _chatListener.Message += OnChatMessage;
     }
 
     private void OnEmote(object? sender, EmoteEvent e)
@@ -219,6 +225,249 @@ public sealed class EmoteService : IDisposable
     {
         _emoteListener.Emote -= OnEmote;
         _emoteListener.ClickEmoteLink -= OnClickedEmoteLink;
+        _chatListener.Message -= OnChatMessage;
+    }
+
+    private void OnChatMessage(
+        XivChatType type,
+        int timestamp,
+        ref SeString sender,
+        ref SeString message,
+        ref bool isHandled)
+    {
+        if (isHandled)
+        {
+            return;
+        }
+
+        if (type is not XivChatType.StandardEmote) {
+            return;
+        }
+
+        if (!ShouldSuppressRenderedStandardEmoteChatLine())
+        {
+            return;
+        }
+
+
+        var senderText = sender.ToString();
+
+        var playerName = _playerState.CharacterName;
+
+        if (playerName.Length > 0 && senderText == playerName) // Ignore the current player
+        {
+            return;
+        }
+
+        var msgText = message.ToString();
+
+        if (!msgText.Contains("you", StringComparison.OrdinalIgnoreCase)) // Fast ... you. check though it breaks german/french/japanese but oh well.
+        {
+            return;
+        }
+
+        var normalizedMessage = NormalizeForComparison(msgText);
+
+        if (normalizedMessage.Length == 0)
+        {
+            return;
+        }
+
+        if (IsTargetedEmoteToYouFromSender(normalizedMessage, senderText, message))
+        {
+            isHandled = true;
+            _logger.Debug("Suppressed rendered emote chat line by direct match: {Message}", message.ToString());
+            return;
+        }
+
+        _logger.Debug(
+            "Unmatched standard emote chat line. Sender: {Sender}; Message: {Message}; Normalized: {Normalized}; Payloads: {Payloads}",
+            senderText,
+            msgText,
+            normalizedMessage,
+            BuildPayloadDebugString(message));
+
+    }
+
+    private bool ShouldSuppressRenderedStandardEmoteChatLine()
+    {
+        if (!_configService.Configuration.EnableEmoteNotifications)
+        {
+            return false;
+        }
+
+        if (!_configService.Configuration.EnableEmoteNotificationInCombat && _condition[ConditionFlag.InCombat])
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool IsTargetedEmoteToYouFromSender(string normalizedMessage, string senderText, SeString message)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedMessage))
+        {
+            return false;
+        }
+
+        const string namePlaceholder = "ohheynameplaceholder";
+        var senderName = TryGetSenderNameFromPlayerPayload(message, out var payloadSenderName)
+            ? payloadSenderName
+            : senderText;
+        var normalizedSenderName = NormalizeForComparison(TrimWrappingQuotes(senderName));
+        if (normalizedSenderName.Length == 0)
+        {
+            return false;
+        }
+
+        var previews = _emoteLogMessageService.GetTargetedPayloadPreviewNameCache();
+        foreach (var preview in previews.Values)
+        {
+            var template = preview.NameToYou.Replace("{Name}", namePlaceholder, StringComparison.Ordinal);
+            var normalizedTemplate = NormalizeForComparison(template);
+            if (normalizedTemplate.Length == 0)
+            {
+                continue;
+            }
+
+            var placeholderIndex = normalizedTemplate.IndexOf(namePlaceholder, StringComparison.Ordinal);
+            if (placeholderIndex < 0)
+            {
+                continue;
+            }
+
+            var prefix = normalizedTemplate[..placeholderIndex];
+            var suffix = normalizedTemplate[(placeholderIndex + namePlaceholder.Length)..];
+
+            if (prefix.Length > 0 && !normalizedMessage.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (suffix.Length > 0 && !normalizedMessage.EndsWith(suffix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var start = prefix.Length;
+            var end = normalizedMessage.Length - suffix.Length;
+            if (end <= start)
+            {
+                continue;
+            }
+
+            var nameSegment = normalizedMessage[start..end].Trim();
+            if (nameSegment.Length == 0)
+            {
+                continue;
+            }
+
+            if (nameSegment.Contains(normalizedSenderName, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetSenderNameFromPlayerPayload(SeString message, out string senderName)
+    {
+        senderName = string.Empty;
+        foreach (var payload in message.Payloads)
+        {
+            if (payload is not PlayerPayload playerPayload)
+            {
+                continue;
+            }
+
+            var candidate = playerPayload.PlayerName.ToString();
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                continue;
+            }
+
+            senderName = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeForComparison(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var chars = new char[value.Length];
+        var length = 0;
+        var previousWasWhitespace = false;
+        foreach (var c in value)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                chars[length++] = char.ToLowerInvariant(c);
+                previousWasWhitespace = false;
+                continue;
+            }
+
+            if (!char.IsWhiteSpace(c) || previousWasWhitespace)
+            {
+                continue;
+            }
+
+            chars[length++] = ' ';
+            previousWasWhitespace = true;
+        }
+
+        if (length == 0)
+        {
+            return string.Empty;
+        }
+
+        return new string(chars, 0, length).Trim();
+    }
+
+    private static string TrimWrappingQuotes(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+        {
+            return trimmed[1..^1];
+        }
+
+        return trimmed;
+    }
+
+    private static string BuildPayloadDebugString(SeString message)
+    {
+        if (message.Payloads.Count == 0)
+        {
+            return "<none>";
+        }
+
+        var builder = new System.Text.StringBuilder();
+        for (var i = 0; i < message.Payloads.Count; i++)
+        {
+            if (i > 0)
+            {
+                builder.Append(" | ");
+            }
+
+            var payload = message.Payloads[i];
+            builder
+                .Append('#')
+                .Append(i)
+                .Append(' ')
+                .Append(payload.GetType().Name)
+                .Append(": ")
+                .Append(payload.ToString());
+        }
+
+        return builder.ToString();
     }
 
     public ReplayTargetDebugSnapshot GetReplayTargetDebugSnapshot()
@@ -486,6 +735,7 @@ public sealed class EmoteService : IDisposable
             }
         }
     }
+
 }
 
 public readonly record struct FixedWindowState(DateTime WindowStartUtc, int Count);
