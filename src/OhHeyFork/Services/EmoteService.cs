@@ -17,10 +17,6 @@ public sealed class EmoteService : IDisposable
 {
     private const string ChatSenderName = "OhHeyFork";
     public const int MaxEmoteHistory = 10;
-    private const int MinRateLimitWindowSeconds = 1;
-    private const int MaxRateLimitWindowSeconds = 3600;
-    private const int MinRateLimitMaxCount = 1;
-    private const int MaxRateLimitMaxCount = 1000;
 
     private readonly IPluginLog _logger;
     private readonly EmoteListener _emoteListener;
@@ -34,12 +30,8 @@ public sealed class EmoteService : IDisposable
     private readonly ITargetManager _targetManager;
     private readonly IObjectTable _objectTable;
     private readonly IDataManagerCacheService _dataManagerCacheService;
-    private readonly Dictionary<ushort, Queue<DateTime>> _emoteChatNotificationTimes = new();
-    private readonly Dictionary<ushort, FixedWindowState> _emoteChatFixedWindowState = new();
+    private readonly IEmoteChatRateLimitService _emoteChatRateLimitService;
     private readonly object _replayDebugLock = new();
-    private int _emoteChatNotificationsSuppressed;
-    private ushort? _lastEmoteId;
-    private string? _lastEmoteName;
     private DateTime? _lastReplayAtUtc;
     private ushort? _lastReplayEmoteId;
     private ulong? _lastReplayRequestedTargetId;
@@ -58,7 +50,7 @@ public sealed class EmoteService : IDisposable
     public EmoteService(IPluginLog logger, EmoteListener emoteListener, ChatListener chatListener, IChatGui chatGui,
         IEmoteLogMessageService emoteLogMessageService, ConfigurationService configService, ICondition condition,
         IPlayerState playerState, IDataManagerCacheService dataManagerCacheService, ITargetManager targetManager, IObjectTable objectTable,
-        IGameConfig gameConfig)
+        IGameConfig gameConfig, IEmoteChatRateLimitService emoteChatRateLimitService)
     {
         _logger = logger;
         _emoteListener = emoteListener;
@@ -72,6 +64,7 @@ public sealed class EmoteService : IDisposable
         _targetManager = targetManager;
         _objectTable = objectTable;
         _dataManagerCacheService = dataManagerCacheService;
+        _emoteChatRateLimitService = emoteChatRateLimitService;
 
         _emoteListener.Emote += OnEmote;
         _emoteListener.ClickEmoteLink += OnClickedEmoteLink;
@@ -121,7 +114,7 @@ public sealed class EmoteService : IDisposable
         if (!_configService.Settings.Emote.EnableNotifications) return;
         if (e.InitiatorIsSelf && !_configService.Settings.Emote.NotifyOnSelf) return;
         if (!_configService.Settings.Emote.EnableNotificationInCombat && _condition[ConditionFlag.InCombat]) return;
-        if (!TryConsumeEmoteChatRateLimitSlot(e)) return;
+        if (!_emoteChatRateLimitService.TryConsume(e.EmoteId)) return;
         var emoteDisplayName = _dataManagerCacheService.GetEmoteDisplayName(e.EmoteId);
         var builder = new SeStringBuilder();
         builder.AddUiForeground("[Oh Hey!] ", 537);
@@ -148,7 +141,7 @@ public sealed class EmoteService : IDisposable
             var silentReplayLinkPayload = _emoteListener.AddTemporaryReplayLink(e, silentReplay: true);
             builder.AddText(" ");
             builder.Add(replayLinkPayload);
-            builder.AddUiForeground($"[Replay {emoteDisplayName}]", 45);
+            builder.AddUiForeground($"[{emoteDisplayName}]", 45);
             builder.AddUiForegroundOff();
             builder.Add(RawPayload.LinkTerminator);
             builder.AddText(" ");
@@ -161,64 +154,6 @@ public sealed class EmoteService : IDisposable
 
         if (!_configService.Settings.Emote.EnableSoundNotification) return;
         UIGlobals.PlayChatSoundEffect(_configService.Settings.Emote.SoundNotificationId);
-    }
-
-    public EmoteChatRateLimitStatus GetEmoteChatRateLimitStatus()
-    {
-        var configuration = _configService.Settings.Emote.ChatRateLimit;
-        var enabled = configuration.Enabled;
-        var windowSeconds = ClampRateLimitWindowSeconds(configuration.WindowSeconds);
-        var maxCount = ClampRateLimitMaxCount(configuration.MaxCount);
-        var mode = configuration.Mode;
-        var now = DateTime.UtcNow;
-        int currentCount = 0;
-        DateTime? nextAllowedUtc = null;
-        int trackedEmoteCount = 0;
-        if (_lastEmoteId.HasValue)
-        {
-            if (mode == EmoteChatNotificationRateLimitMode.RollingWindow &&
-                _emoteChatNotificationTimes.TryGetValue(_lastEmoteId.Value, out var times))
-            {
-                PruneEmoteChatNotificationTimes(times, now, windowSeconds);
-                currentCount = times.Count;
-                trackedEmoteCount = _emoteChatNotificationTimes.Count;
-                if (enabled && currentCount >= maxCount && times.Count > 0)
-                {
-                    nextAllowedUtc = times.Peek().AddSeconds(windowSeconds);
-                }
-            }
-            else if (mode == EmoteChatNotificationRateLimitMode.FixedWindow &&
-                     _emoteChatFixedWindowState.TryGetValue(_lastEmoteId.Value, out var state))
-            {
-                var refreshed = RefreshFixedWindow(state, now, windowSeconds);
-                currentCount = refreshed.Count;
-                trackedEmoteCount = _emoteChatFixedWindowState.Count;
-                if (enabled && currentCount >= maxCount)
-                {
-                    nextAllowedUtc = refreshed.WindowStartUtc.AddSeconds(windowSeconds);
-                }
-            }
-        }
-
-        return new EmoteChatRateLimitStatus(
-            enabled,
-            windowSeconds,
-            maxCount,
-            currentCount,
-            _emoteChatNotificationsSuppressed,
-            nextAllowedUtc,
-            trackedEmoteCount,
-            _lastEmoteName,
-            mode);
-    }
-
-    public void ResetEmoteChatRateLimitCounters()
-    {
-        _emoteChatNotificationTimes.Clear();
-        _emoteChatFixedWindowState.Clear();
-        _emoteChatNotificationsSuppressed = 0;
-        _lastEmoteId = null;
-        _lastEmoteName = null;
     }
 
     public string GetEmoteDisplayName(ushort emoteId)
@@ -521,81 +456,6 @@ public sealed class EmoteService : IDisposable
         }
     }
 
-    private bool TryConsumeEmoteChatRateLimitSlot(EmoteEvent e)
-    {
-        var configuration = _configService.Settings.Emote.ChatRateLimit;
-        if (!configuration.Enabled) return true;
-
-        var windowSeconds = ClampRateLimitWindowSeconds(configuration.WindowSeconds);
-        var maxCount = ClampRateLimitMaxCount(configuration.MaxCount);
-        var mode = configuration.Mode;
-        var now = DateTime.UtcNow;
-        var emoteId = e.EmoteId;
-        _lastEmoteId = emoteId;
-        _lastEmoteName = _dataManagerCacheService.GetEmoteDisplayName(emoteId);
-
-        if (mode == EmoteChatNotificationRateLimitMode.FixedWindow)
-        {
-            if (!_emoteChatFixedWindowState.TryGetValue(emoteId, out var state))
-            {
-                state = new FixedWindowState(now, 0);
-            }
-
-            state = RefreshFixedWindow(state, now, windowSeconds);
-            if (state.Count >= maxCount)
-            {
-                _emoteChatNotificationsSuppressed++;
-                _emoteChatFixedWindowState[emoteId] = state;
-                return false;
-            }
-
-            state = state with { Count = state.Count + 1 };
-            _emoteChatFixedWindowState[emoteId] = state;
-            return true;
-        }
-
-        if (!_emoteChatNotificationTimes.TryGetValue(emoteId, out var times))
-        {
-            times = new Queue<DateTime>();
-            _emoteChatNotificationTimes[emoteId] = times;
-        }
-
-        PruneEmoteChatNotificationTimes(times, now, windowSeconds);
-        if (times.Count >= maxCount)
-        {
-            _emoteChatNotificationsSuppressed++;
-            return false;
-        }
-
-        times.Enqueue(now);
-        return true;
-    }
-
-    private void PruneEmoteChatNotificationTimes(Queue<DateTime> times, DateTime nowUtc, int windowSeconds)
-    {
-        var threshold = nowUtc.AddSeconds(-windowSeconds);
-        while (times.Count > 0 && times.Peek() < threshold)
-        {
-            times.Dequeue();
-        }
-    }
-
-    private static int ClampRateLimitWindowSeconds(int value)
-        => Math.Clamp(value, MinRateLimitWindowSeconds, MaxRateLimitWindowSeconds);
-
-    private static int ClampRateLimitMaxCount(int value)
-        => Math.Clamp(value, MinRateLimitMaxCount, MaxRateLimitMaxCount);
-
-    private static FixedWindowState RefreshFixedWindow(FixedWindowState state, DateTime nowUtc, int windowSeconds)
-    {
-        if (nowUtc - state.WindowStartUtc >= TimeSpan.FromSeconds(windowSeconds))
-        {
-            return new FixedWindowState(nowUtc, 0);
-        }
-
-        return state;
-    }
-
     private void PrintChatMessage(Dalamud.Game.Text.XivChatType chatType, SeString message)
     {
         if (chatType == Dalamud.Game.Text.XivChatType.None)
@@ -745,19 +605,6 @@ public sealed class EmoteService : IDisposable
     }
 
 }
-
-public readonly record struct FixedWindowState(DateTime WindowStartUtc, int Count);
-
-public readonly record struct EmoteChatRateLimitStatus(
-    bool Enabled,
-    int WindowSeconds,
-    int MaxCount,
-    int CurrentCount,
-    int SuppressedCount,
-    DateTime? NextAllowedUtc,
-    int TrackedEmoteCount,
-    string? LastEmoteName,
-    EmoteChatNotificationRateLimitMode Mode);
 
 public readonly record struct ReplayTargetDebugSnapshot(
     DateTime? LastReplayAtUtc,

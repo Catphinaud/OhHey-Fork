@@ -20,6 +20,7 @@ public class ConfigurationWindow : Window
 {
     private readonly ConfigurationService _configService;
     private readonly EmoteService _emoteService;
+    private readonly IEmoteChatRateLimitService _emoteChatRateLimitService;
     private OhHeyForkGeneralSettings GeneralConfigValues => _configService.Settings.General;
     private OhHeyForkTargetSettings TargetConfigValues => _configService.Settings.Target;
     private OhHeyForkEmoteSettings EmoteConfigValues => _configService.Settings.Emote;
@@ -61,11 +62,12 @@ public class ConfigurationWindow : Window
     private static readonly string ChatTypeOptionsText =
         string.Join('\0', ChatTypeOptions.Select(option => option.Label)) + '\0';
 
-    public ConfigurationWindow(ConfigurationService configService, EmoteService emoteService)
+    public ConfigurationWindow(ConfigurationService configService, EmoteService emoteService, IEmoteChatRateLimitService emoteChatRateLimitService)
         : base("Oh Hey! Configuration##ohhey_config_window")
     {
         _configService = configService;
         _emoteService = emoteService;
+        _emoteChatRateLimitService = emoteChatRateLimitService;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -343,7 +345,7 @@ public class ConfigurationWindow : Window
         if (!tabItem) return;
 
         ImGui.TextUnformatted("Emote chat rate limit (per emote):");
-        var status = _emoteService.GetEmoteChatRateLimitStatus();
+        var status = _emoteChatRateLimitService.GetStatus();
         ImGui.TextUnformatted($"Enabled: {status.Enabled}");
         ImGui.TextUnformatted($"Mode: {status.Mode}");
         ImGui.TextUnformatted($"Window: {status.WindowSeconds}s");
@@ -358,7 +360,7 @@ public class ConfigurationWindow : Window
 
         if (ImGui.Button("Reset emote rate limit counters"))
         {
-            _emoteService.ResetEmoteChatRateLimitCounters();
+            _emoteChatRateLimitService.ResetCounters();
         }
 
         ImGui.Separator();
