@@ -72,7 +72,12 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
     }
 
     private static string BuildFallbackEmoteName(ushort emoteId)
-        => $"Emote#{emoteId}";
+        => emoteId switch
+        {
+            96 => "NPC Sit",
+            100 => "NPC Sleep",
+            _ => $"Emote#{emoteId}"
+        };
 
     private readonly record struct EmoteCacheEntry(uint IconId, string DisplayName);
 }
