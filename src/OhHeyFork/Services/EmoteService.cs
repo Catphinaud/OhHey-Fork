@@ -159,6 +159,26 @@ public sealed class EmoteService : IDisposable
     public string GetEmoteDisplayName(ushort emoteId)
         => _dataManagerCacheService.GetEmoteDisplayName(emoteId);
 
+    public unsafe bool CanUseEmote(ushort emoteId)
+    {
+        if (!AgentLobby.Instance()->IsLoggedIn)
+        {
+            return false;
+        }
+
+        return AgentEmote.Instance()->CanUseEmote(emoteId);
+    }
+
+    public void TryUseEmoteIfAvailable(ushort emoteId)
+    {
+        if (!CanUseEmote(emoteId))
+        {
+            return;
+        }
+
+        ReplayEmoteById(emoteId, null, false);
+    }
+
     public void Dispose()
     {
         _emoteListener.Emote -= OnEmote;

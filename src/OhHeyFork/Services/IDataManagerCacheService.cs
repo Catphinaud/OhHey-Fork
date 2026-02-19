@@ -8,4 +8,10 @@ public interface IDataManagerCacheService
     bool TryGetWorldName(uint worldId, out string worldName);
     bool TryGetEmoteIconId(ushort emoteId, out uint iconId);
     string GetEmoteDisplayName(ushort emoteId);
+    IReadOnlyList<CachedEmoteInfo> GetAllEmotes();
 }
+
+public readonly record struct CachedEmoteInfo(
+    ushort EmoteId,
+    uint IconId,
+    string DisplayName);

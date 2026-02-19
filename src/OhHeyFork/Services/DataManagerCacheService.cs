@@ -11,6 +11,7 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
     private readonly Dictionary<uint, string> _worldNamesById;
     private readonly Dictionary<ushort, EmoteCacheEntry> _emotesById;
     private readonly Dictionary<ushort, string> _emoteDisplayNamesById;
+    private readonly IReadOnlyList<CachedEmoteInfo> _allEmotes;
 
     public DataManagerCacheService(IDataManager dataManager)
     {
@@ -28,6 +29,10 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
                     DisplayName: BuildDisplayName((ushort)emote.RowId, emote.Name.ToString())));
 
         _emoteDisplayNamesById = _emotesById.ToDictionary(entry => entry.Key, entry => entry.Value.DisplayName);
+        _allEmotes = _emotesById
+            .OrderBy(entry => entry.Key)
+            .Select(entry => new CachedEmoteInfo(entry.Key, entry.Value.IconId, entry.Value.DisplayName))
+            .ToArray();
     }
 
     public bool TryGetWorldName(uint worldId, out string worldName)
@@ -58,6 +63,9 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
         return displayName;
     }
 
+    public IReadOnlyList<CachedEmoteInfo> GetAllEmotes()
+        => _allEmotes;
+
     private static string BuildDisplayName(ushort emoteId, string rawName)
     {
         if (string.IsNullOrWhiteSpace(rawName))
@@ -74,8 +82,27 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
     private static string BuildFallbackEmoteName(ushort emoteId)
         => emoteId switch
         {
-            96 => "NPC Sit",
-            100 => "NPC Sleep",
+            91 => "Standing 1",
+            92 => "Standing 2",
+            93 => "Standing 3",
+            94 => "Unknown 1",
+            95 => "NPC Sit 1",
+            96 => "NPC Sit 2",
+            97 => "NPC Sit 3",
+            98 => "NPC Sit 4",
+            99 => "NPC Sleep 1",
+            100 => "NPC Sleep 2",
+            107 => "Standing 4",
+            108 => "Standing 5",
+            117 => "NPC Sit 5",
+            179 => "Splash 2",
+            243 => "Parasol 1",
+            244 => "Parasol 2",
+            253 => "Parasol 3",
+            254 => "NPC Sit 6",
+            255 => "NPC Sit 7",
+            289 => "Photograph 1",
+            290 => "Photograph 2",
             _ => $"Emote#{emoteId}"
         };
 

@@ -5,8 +5,11 @@ using System.Numerics;
 using System.Text;
 using System.Text.RegularExpressions;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Textures;
+using Dalamud.Interface.Textures.TextureWraps;
 using Dalamud.Interface.Utility.Raii;
 using Dalamud.Interface.Windowing;
+using Dalamud.Plugin.Services;
 using JetBrains.Annotations;
 using OhHeyFork.Listeners;
 using OhHeyFork.Services;
@@ -19,8 +22,11 @@ public sealed class EmoteDebugWindow : Window
     private readonly IEmoteLogMessageService _emoteLogMessageService;
     private readonly EmoteListener _emoteListener;
     private readonly EmoteService _emoteService;
+    private readonly IDataManagerCacheService _dataManagerCacheService;
+    private readonly ITextureProvider _textureProvider;
 
     private string _filter = string.Empty;
+    private string _emoteBrowserFilter = string.Empty;
     private int _previewEmoteRowId = 105;
     private string _previewRawPayload = string.Empty;
     private string _previewTargetName = "{Name}";
@@ -28,13 +34,23 @@ public sealed class EmoteDebugWindow : Window
     private string _previewNameToYou = string.Empty;
     private string _previewStatus = "Load an emote row id or paste a raw payload.";
     private int _namePreviewCacheCount;
+    private IReadOnlyList<CachedEmoteInfo> _allEmotes = [];
+    private readonly Dictionary<ushort, bool> _canUseCache = new();
+    private DateTime _nextCanUseRefreshUtc = DateTime.MinValue;
 
-    public EmoteDebugWindow(IEmoteLogMessageService emoteLogMessageService, EmoteListener emoteListener, EmoteService emoteService)
+    public EmoteDebugWindow(
+        IEmoteLogMessageService emoteLogMessageService,
+        EmoteListener emoteListener,
+        EmoteService emoteService,
+        IDataManagerCacheService dataManagerCacheService,
+        ITextureProvider textureProvider)
         : base("Oh Hey! Emote Debug##ohhey_emote_debug_window")
     {
         _emoteLogMessageService = emoteLogMessageService;
         _emoteListener = emoteListener;
         _emoteService = emoteService;
+        _dataManagerCacheService = dataManagerCacheService;
+        _textureProvider = textureProvider;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -46,6 +62,8 @@ public sealed class EmoteDebugWindow : Window
     {
         base.OnOpen();
         _namePreviewCacheCount = _emoteLogMessageService.GetTargetedPayloadPreviewNameCache().Count;
+        _allEmotes = _dataManagerCacheService.GetAllEmotes();
+        _nextCanUseRefreshUtc = DateTime.MinValue;
         TryLoadRawPayloadForCurrentRow();
     }
 
@@ -79,8 +97,116 @@ public sealed class EmoteDebugWindow : Window
                     ImGui.EndTabItem();
                 }
 
+                if (ImGui.BeginTabItem("Emote Browser"))
+                {
+                    DrawEmoteBrowserSection();
+                    ImGui.EndTabItem();
+                }
+
                 ImGui.EndTabBar();
             }
+        }
+    }
+
+    private void DrawEmoteBrowserSection()
+    {
+        RefreshCanUseCacheIfDue();
+
+        ImGui.TextUnformatted("All emotes with live CanUse status (refreshes every 1s).");
+        ImGui.SetNextItemWidth(-1);
+        ImGui.InputTextWithHint("##ohhey_emote_browser_filter", "Filter (id or name)...", ref _emoteBrowserFilter, 128);
+
+        var hasFilter = !string.IsNullOrWhiteSpace(_emoteBrowserFilter);
+        var filter = _emoteBrowserFilter.Trim();
+        var hasIdFilter = ushort.TryParse(filter, out var idFilter);
+
+        using var child = ImRaii.Child("##ohhey_emote_browser_list", new Vector2(0, 0), true);
+        if (!child)
+        {
+            return;
+        }
+
+        if (!ImGui.BeginTable("##ohhey_emote_browser_table", 5,
+                ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.Resizable | ImGuiTableFlags.ScrollY))
+        {
+            return;
+        }
+
+        ImGui.TableSetupColumn("Icon", ImGuiTableColumnFlags.WidthFixed, 36f);
+        ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 60f);
+        ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Can Use", ImGuiTableColumnFlags.WidthFixed, 70f);
+        ImGui.TableSetupColumn("Action", ImGuiTableColumnFlags.WidthFixed, 80f);
+        ImGui.TableHeadersRow();
+
+        foreach (var emote in _allEmotes)
+        {
+            if (hasFilter)
+            {
+                if (hasIdFilter)
+                {
+                    if (emote.EmoteId != idFilter)
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    if (emote.DisplayName.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        emote.EmoteId.ToString().IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            var canUse = _canUseCache.TryGetValue(emote.EmoteId, out var value) && value;
+
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0);
+            if (_textureProvider.TryGetFromGameIcon(new GameIconLookup(emote.IconId), out var iconTexture))
+            {
+                ImGui.Image(iconTexture.GetWrapOrEmpty().Handle, new Vector2(24, 24));
+            }
+            else
+            {
+                ImGui.TextUnformatted("?");
+            }
+
+            ImGui.TableSetColumnIndex(1);
+            ImGui.TextUnformatted(emote.EmoteId.ToString());
+
+            ImGui.TableSetColumnIndex(2);
+            ImGui.TextUnformatted(emote.DisplayName);
+
+            ImGui.TableSetColumnIndex(3);
+            ImGui.TextUnformatted(canUse ? "Yes" : "No");
+
+            ImGui.TableSetColumnIndex(4);
+            using (ImRaii.Disabled(!canUse))
+            {
+                if (ImGui.SmallButton($"Use##ohhey_use_emote_{emote.EmoteId}"))
+                {
+                    _emoteService.TryUseEmoteIfAvailable(emote.EmoteId);
+                }
+            }
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void RefreshCanUseCacheIfDue()
+    {
+        var nowUtc = DateTime.UtcNow;
+        if (nowUtc < _nextCanUseRefreshUtc)
+        {
+            return;
+        }
+
+        _nextCanUseRefreshUtc = nowUtc.AddSeconds(1);
+        foreach (var emote in _allEmotes)
+        {
+            _canUseCache[emote.EmoteId] = _emoteService.CanUseEmote(emote.EmoteId);
         }
     }
 
