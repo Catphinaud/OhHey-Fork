@@ -33,7 +33,7 @@ public sealed class MainWindow : Window, IDisposable
             MinimumSize = new Vector2(361, 309)
         };
 
-        RespectCloseHotkey = _configService.Configuration.EnableMainWindowCloseHotkey;
+        RespectCloseHotkey = _configService.Settings.General.EnableMainWindowCloseHotkey;
         configurationService.ConfigurationChanged += OnConfigurationChanged;
 
         TitleBarButtons.Add(new TitleBarButton
@@ -79,7 +79,7 @@ public sealed class MainWindow : Window, IDisposable
         ImGui.PushItemWidth(-1);
         foreach (var emote in _emoteService.EmoteHistory)
         {
-            ImGui.TextColored(KnownColor.LightGray.Vector(), $"{emote.Timestamp:HH:mm:ss} {emote.InitiatorName} used {emote.EmoteName.ToString()}");
+            ImGui.TextColored(KnownColor.LightGray.Vector(), $"{emote.Timestamp:HH:mm:ss} {emote.InitiatorName} used {_emoteService.GetEmoteDisplayName(emote.EmoteId)}");
         }
         ImGui.PopItemWidth();
     }
@@ -131,7 +131,7 @@ public sealed class MainWindow : Window, IDisposable
 
     private void OnConfigurationChanged(object? _, OhHeyForkConfiguration configuration)
     {
-        RespectCloseHotkey = configuration.EnableMainWindowCloseHotkey;
+        RespectCloseHotkey = configuration.Settings.General.EnableMainWindowCloseHotkey;
     }
 
     public void Dispose()

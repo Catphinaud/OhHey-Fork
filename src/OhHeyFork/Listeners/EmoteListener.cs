@@ -7,7 +7,7 @@ using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using Dalamud.Utility.Signatures;
-using Lumina.Excel.Sheets;
+using OhHeyFork.Services;
 
 namespace OhHeyFork.Listeners;
 
@@ -19,7 +19,7 @@ public sealed class EmoteListener : IDisposable
 
     private readonly IPluginLog _logger;
     private readonly IObjectTable _objectTable;
-    private readonly IDataManager _dataManager;
+    private readonly IDataManagerCacheService _dataManagerCacheService;
     private readonly IChatGui _chatGui;
     private readonly Dictionary<uint, TemporaryReplayLink> _temporaryReplayLinks = new();
     private readonly Queue<uint> _reusableReplayLinkIds = new();
@@ -43,11 +43,11 @@ public sealed class EmoteListener : IDisposable
     [Signature("E8 ?? ?? ?? ?? 48 8D 8B ?? ?? ?? ?? 4C 89 74 24", DetourName = nameof(OnEmoteHook))]
     private readonly Hook<OnEmoteDelegate>? _onEmoteHook = null!;
 
-    public EmoteListener(IPluginLog logger, IGameInteropProvider interopProvider, IObjectTable objectTable, IDataManager dataManager, IChatGui chatGui)
+    public EmoteListener(IPluginLog logger, IGameInteropProvider interopProvider, IObjectTable objectTable, IDataManagerCacheService dataManagerCacheService, IChatGui chatGui)
     {
         _logger = logger;
         _objectTable = objectTable;
-        _dataManager = dataManager;
+        _dataManagerCacheService = dataManagerCacheService;
         _chatGui = chatGui;
 
         interopProvider.InitializeFromAttributes(this);
@@ -232,22 +232,18 @@ public sealed class EmoteListener : IDisposable
 
         var target = _objectTable.SearchById(targetId);
 
-        var maybeEmote = _dataManager.GetExcelSheet<Emote>().GetRowOrDefault(emoteId);
-        if (maybeEmote is null)
+        if (!_dataManagerCacheService.TryGetEmoteIconId(emoteId, out var emoteIconId))
         {
-            _logger.Warning("Failed to resolve emote ID {EmoteId}. Skipping event trigger.", emoteId);
+            _logger.Warning("Failed to resolve emote metadata for emote ID {EmoteId}. Skipping event trigger.", emoteId);
             return;
         }
-
-        var emote = maybeEmote.Value;
 
         var targetSelf = targetId == localPlayer.GameObjectId;
         var initiatorIsSelf = initiator.GameObjectId == localPlayer.GameObjectId;
 
         var emoteEvent = new EmoteEvent(
-            EmoteName: emote.Name,
             EmoteId: emoteId,
-            EmoteIconId: emote.Icon,
+            EmoteIconId: emoteIconId,
             InitiatorName: initiator.Name,
             InitiatorId: initiator.GameObjectId,
             InitiatorWorldId: initiator.HomeWorld.RowId,

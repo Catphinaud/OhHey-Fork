@@ -27,7 +27,7 @@ public sealed class EmoteOverlayWindow : Window, IDisposable
         _emoteService = emoteService;
         _configService = configService;
         _textureProvider = textureProvider;
-        IsOpen = _configService.Configuration.EnableEmoteOverlayWindow;
+        IsOpen = _configService.Settings.Emote.EnableOverlayWindow;
         ShowCloseButton = false;
 
         _configService.ConfigurationChanged += OnConfigurationChanged;
@@ -41,7 +41,7 @@ public sealed class EmoteOverlayWindow : Window, IDisposable
 
     public override void Draw()
     {
-        if (!_configService.Configuration.EnableEmoteOverlayWindow) {
+        if (!_configService.Settings.Emote.EnableOverlayWindow) {
             IsOpen = false;
             return;
         }
@@ -81,7 +81,7 @@ public sealed class EmoteOverlayWindow : Window, IDisposable
             ImGui.TableSetColumnIndex(1);
             ImGui.TextUnformatted(emote.InitiatorName.ToString());
             ImGui.TableSetColumnIndex(2);
-            ImGui.TextUnformatted(emote.EmoteName.ToString());
+            ImGui.TextUnformatted(_emoteService.GetEmoteDisplayName(emote.EmoteId));
         }
     }
 
@@ -92,6 +92,6 @@ public sealed class EmoteOverlayWindow : Window, IDisposable
 
     private void OnConfigurationChanged(object? sender, OhHeyForkConfiguration configuration)
     {
-        IsOpen = configuration.EnableEmoteOverlayWindow;
+        IsOpen = configuration.Settings.Emote.EnableOverlayWindow;
     }
 }

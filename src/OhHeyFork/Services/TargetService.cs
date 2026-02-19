@@ -21,14 +21,14 @@ public sealed class TargetService : IDisposable
     private readonly ConfigurationService _configService;
     private readonly IObjectTable _objectTable;
     private readonly IPlayerState _playerState;
-    private readonly Dictionary<uint, string> _worlds;
+    private readonly IDataManagerCacheService _dataManagerCacheService;
 
     public List<TargetEvent> CurrentTargets { get; } = [];
 
     public List<TargetEvent> TargetHistory { get; } = [];
 
     public TargetService(IPluginLog logger, TargetListener targetListener, IChatGui chatGui,
-        ConfigurationService configService, ICondition condition, IObjectTable objectTable, IPlayerState playerState, IDataManager dataManager)
+        ConfigurationService configService, ICondition condition, IObjectTable objectTable, IPlayerState playerState, IDataManagerCacheService dataManagerCacheService)
     {
         _logger = logger;
         _targetListener = targetListener;
@@ -37,9 +37,7 @@ public sealed class TargetService : IDisposable
         _condition = condition;
         _objectTable = objectTable;
         _playerState = playerState;
-        _worlds = dataManager
-            .GetExcelSheet<Lumina.Excel.Sheets.World>()
-            .ToDictionary(world => world.RowId, world => world.Name.ToString());
+        _dataManagerCacheService = dataManagerCacheService;
 
         _targetListener.Target += OnTarget;
         _targetListener.TargetRemoved += OnTargetRemoved;
@@ -74,7 +72,7 @@ public sealed class TargetService : IDisposable
 
         if (e.IsSelf)
         {
-            if (_configService.Configuration.ShowSelfTarget)
+            if (_configService.Settings.Target.ShowSelf)
             {
                 UpdateTargetList(e);
             }
@@ -83,10 +81,10 @@ public sealed class TargetService : IDisposable
             UpdateTargetList(e);
         }
 
-        if (!_configService.Configuration.EnableTargetNotifications) return;
+        if (!_configService.Settings.Target.EnableNotifications) return;
 
-        if (e.IsSelf && !_configService.Configuration.NotifyOnSelfTarget) return;
-        if (!_configService.Configuration.EnableTargetNotificationInCombat &&
+        if (e.IsSelf && !_configService.Settings.Target.NotifyOnSelf) return;
+        if (!_configService.Settings.Target.EnableNotificationInCombat &&
             _condition[ConditionFlag.InCombat]) return;
         SendNotification(e);
     }
@@ -129,9 +127,9 @@ public sealed class TargetService : IDisposable
         builder.Add(new PlayerPayload(evt.SeName.TextValue, evt.WorldId));
 
         if (
-            _configService.Configuration.ShowWorldNameInChatNotifications &&
+            _configService.Settings.NotificationDisplay.ShowWorldNameInChatNotifications &&
             _playerState.HomeWorld.RowId != evt.WorldId &&
-            _worlds.TryGetValue(evt.WorldId, out string? worldName) &&
+            _dataManagerCacheService.TryGetWorldName(evt.WorldId, out string? worldName) &&
             !string.IsNullOrEmpty(worldName)
         ) {
             builder.AddIcon(BitmapFontIcon.CrossWorld);
@@ -140,11 +138,11 @@ public sealed class TargetService : IDisposable
 
         builder.AddText(" is targeting you!");
 
-        PrintChatMessage(_configService.Configuration.TargetNotificationChatType,  builder.Build());
+        PrintChatMessage(_configService.Settings.Target.NotificationChatType,  builder.Build());
 
-        if (_configService.Configuration.EnableTargetSoundNotification)
+        if (_configService.Settings.Target.EnableSoundNotification)
         {
-            UIGlobals.PlayChatSoundEffect(_configService.Configuration.TargetSoundNotificationId);
+            UIGlobals.PlayChatSoundEffect(_configService.Settings.Target.SoundNotificationId);
         }
     }
 

@@ -35,6 +35,7 @@ public sealed class OhHeyForkPlugin : IDalamudPlugin
             .AddDalamudService<ISeStringEvaluator>()
             .AddDalamudService<IPlayerState>()
             .AddDalamudService<IGameConfig>()
+            .AddSingleton<IDataManagerCacheService, DataManagerCacheService>()
             .AddSingleton<ConfigurationService>()
             .AddSingleton<ChatListener>()
             .AddSingleton<EmoteListener>()

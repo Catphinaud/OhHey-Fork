@@ -20,7 +20,9 @@ public class ConfigurationWindow : Window
 {
     private readonly ConfigurationService _configService;
     private readonly EmoteService _emoteService;
-    private OhHeyForkConfiguration Config => _configService.Configuration;
+    private OhHeyForkGeneralSettings GeneralConfigValues => _configService.Settings.General;
+    private OhHeyForkTargetSettings TargetConfigValues => _configService.Settings.Target;
+    private OhHeyForkEmoteSettings EmoteConfigValues => _configService.Settings.Emote;
 
     private static readonly (string Label, XivChatType Type)[] ChatTypeOptions =
     [
@@ -87,10 +89,10 @@ public class ConfigurationWindow : Window
         using var tabItem = ImRaii.TabItem("General##ohhey_config_tab_general");
         if (!tabItem) return;
 
-        var enableCloseHotkey = Config.EnableMainWindowCloseHotkey;
+        var enableCloseHotkey = GeneralConfigValues.EnableMainWindowCloseHotkey;
         if (ImGui.Checkbox("Enable closing the main window with ESC", ref enableCloseHotkey))
         {
-            Config.EnableMainWindowCloseHotkey = enableCloseHotkey;
+            GeneralConfigValues.EnableMainWindowCloseHotkey = enableCloseHotkey;
             _configService.Save();
         }
     }
@@ -102,17 +104,17 @@ public class ConfigurationWindow : Window
 
         ImGui.TextUnformatted("Notification Settings:");
 
-        var enableTargetNotifications = Config.EnableTargetNotifications;
+        var enableTargetNotifications = TargetConfigValues.EnableNotifications;
         if (ImGui.Checkbox("Enable target notifications", ref enableTargetNotifications))
         {
-            Config.EnableTargetNotifications = enableTargetNotifications;
+            TargetConfigValues.EnableNotifications = enableTargetNotifications;
             _configService.Save();
         }
 
-        var targetChatIndex = GetChatTypeIndex(Config.TargetNotificationChatType);
+        var targetChatIndex = GetChatTypeIndex(TargetConfigValues.NotificationChatType);
         if (ImGui.Combo("Notification channel", ref targetChatIndex, ChatTypeOptionsText))
         {
-            Config.TargetNotificationChatType = ChatTypeOptions[targetChatIndex].Type;
+            TargetConfigValues.NotificationChatType = ChatTypeOptions[targetChatIndex].Type;
             _configService.Save();
         }
 
@@ -120,42 +122,42 @@ public class ConfigurationWindow : Window
 
         ImGui.Separator();
         ImGui.TextUnformatted("Combat Settings:");
-        var enableInDuty = Config.EnableTargetNotificationInCombat;
+        var enableInDuty = TargetConfigValues.EnableNotificationInCombat;
         if (ImGui.Checkbox("Enable target notifications while in combat", ref enableInDuty))
         {
-            Config.EnableTargetNotificationInCombat = enableInDuty;
+            TargetConfigValues.EnableNotificationInCombat = enableInDuty;
             _configService.Save();
         }
 
         ImGui.Separator();
         ImGui.TextUnformatted("Self-target settings:");
 
-        var allowSelfTarget = Config.ShowSelfTarget;
+        var allowSelfTarget = TargetConfigValues.ShowSelf;
         if (ImGui.Checkbox("Show self-targeting in target list", ref allowSelfTarget))
         {
-            Config.ShowSelfTarget = allowSelfTarget;
+            TargetConfigValues.ShowSelf = allowSelfTarget;
             _configService.Save();
         }
 
-        var notifyOnSelfTarget = Config.NotifyOnSelfTarget;
+        var notifyOnSelfTarget = TargetConfigValues.NotifyOnSelf;
         if (ImGui.Checkbox("Notify on self-target", ref notifyOnSelfTarget))
         {
-            Config.NotifyOnSelfTarget = notifyOnSelfTarget;
+            TargetConfigValues.NotifyOnSelf = notifyOnSelfTarget;
             _configService.Save();
         }
     }
 
     private void TargetSoundConfig()
     {
-        var soundEnabled = Config.EnableTargetSoundNotification;
+        var soundEnabled = TargetConfigValues.EnableSoundNotification;
         if(ImGui.Checkbox("Enable sound notification on target", ref soundEnabled))
         {
-            Config.EnableTargetSoundNotification = soundEnabled;
+            TargetConfigValues.EnableSoundNotification = soundEnabled;
             _configService.Save();
         }
 
         ImGui.TextUnformatted("Sound to play (SE.1 - SE.16)");
-        var selectedIndex = _configService.Configuration.TargetSoundNotificationId;
+        var selectedIndex = _configService.Settings.Target.SoundNotificationId;
         using (var combo = ImRaii.Combo("##ohhey_config_combo_target_sound", $"SE.{selectedIndex}"))
         {
             if (combo)
@@ -166,7 +168,7 @@ public class ConfigurationWindow : Window
                     if (ImGui.Selectable($"SE.{i}", isSelected))
                     {
                         selectedIndex = (uint)i;
-                        Config.TargetSoundNotificationId = selectedIndex;
+                        TargetConfigValues.SoundNotificationId = selectedIndex;
                         _configService.Save();
                     }
 
@@ -180,7 +182,7 @@ public class ConfigurationWindow : Window
         ImGui.SameLine();
         if (ImGui.ArrowButton("##ohhey_config_button_target_sound_play", ImGuiDir.Right))
         {
-            UIGlobals.PlayChatSoundEffect(_configService.Configuration.TargetSoundNotificationId);
+            UIGlobals.PlayChatSoundEffect(_configService.Settings.Target.SoundNotificationId);
         }
 
         if (ImGui.IsItemHovered())
@@ -197,17 +199,24 @@ public class ConfigurationWindow : Window
 
         ImGui.TextUnformatted("Notification Settings:");
 
-        var enableEmoteNotifications = Config.EnableEmoteNotifications;
+        var enableEmoteNotifications = EmoteConfigValues.EnableNotifications;
         if (ImGui.Checkbox("Enable emote notifications", ref enableEmoteNotifications))
         {
-            Config.EnableEmoteNotifications = enableEmoteNotifications;
+            EmoteConfigValues.EnableNotifications = enableEmoteNotifications;
             _configService.Save();
         }
 
-        var emoteChatIndex = GetChatTypeIndex(Config.EmoteNotificationChatType);
+        var emoteChatIndex = GetChatTypeIndex(EmoteConfigValues.NotificationChatType);
         if (ImGui.Combo("Notification channel", ref emoteChatIndex, ChatTypeOptionsText))
         {
-            Config.EmoteNotificationChatType = ChatTypeOptions[emoteChatIndex].Type;
+            EmoteConfigValues.NotificationChatType = ChatTypeOptions[emoteChatIndex].Type;
+            _configService.Save();
+        }
+
+        var suppressDuplicateTargetedLine = EmoteConfigValues.SuppressDuplicateTargetedChatLine;
+        if (ImGui.Checkbox("Suppress duplicate targeted emote chat line", ref suppressDuplicateTargetedLine))
+        {
+            EmoteConfigValues.SuppressDuplicateTargetedChatLine = suppressDuplicateTargetedLine;
             _configService.Save();
         }
 
@@ -215,85 +224,85 @@ public class ConfigurationWindow : Window
 
         ImGui.Separator();
         ImGui.TextUnformatted("Combat Settings:");
-        var enableInDuty = Config.EnableEmoteNotificationInCombat;
+        var enableInDuty = EmoteConfigValues.EnableNotificationInCombat;
         if (ImGui.Checkbox("Enable emote notifications while in combat", ref enableInDuty))
         {
-            Config.EnableEmoteNotificationInCombat = enableInDuty;
+            EmoteConfigValues.EnableNotificationInCombat = enableInDuty;
             _configService.Save();
         }
 
         ImGui.Separator();
         ImGui.TextUnformatted("Self-emote settings:");
 
-        var allowSelfEmote = Config.ShowSelfEmote;
+        var allowSelfEmote = EmoteConfigValues.ShowSelf;
         if (ImGui.Checkbox("Show self-emote in history", ref allowSelfEmote))
         {
-            Config.ShowSelfEmote = allowSelfEmote;
+            EmoteConfigValues.ShowSelf = allowSelfEmote;
             _configService.Save();
         }
 
-        var notifyOnSelfEmote = Config.NotifyOnSelfEmote;
+        var notifyOnSelfEmote = EmoteConfigValues.NotifyOnSelf;
         if (ImGui.Checkbox("Notify on self-emote", ref notifyOnSelfEmote))
         {
-            Config.NotifyOnSelfEmote = notifyOnSelfEmote;
+            EmoteConfigValues.NotifyOnSelf = notifyOnSelfEmote;
             _configService.Save();
         }
 
         ImGui.Separator();
         ImGui.TextUnformatted("Chat rate limit (per emote):");
 
-        var rateLimitEnabled = Config.EnableEmoteChatNotificationRateLimit;
+        var rateLimitEnabled = EmoteConfigValues.ChatRateLimit.Enabled;
         if (ImGui.Checkbox("Limit per-emote chat notifications (rolling window)", ref rateLimitEnabled))
         {
-            Config.EnableEmoteChatNotificationRateLimit = rateLimitEnabled;
+            EmoteConfigValues.ChatRateLimit.Enabled = rateLimitEnabled;
             _configService.Save();
         }
 
-        using (ImRaii.Disabled(!Config.EnableEmoteChatNotificationRateLimit))
+        using (ImRaii.Disabled(!EmoteConfigValues.ChatRateLimit.Enabled))
         {
-            var modeIndex = (int)Config.EmoteChatNotificationRateLimitMode;
+            var modeIndex = (int)EmoteConfigValues.ChatRateLimit.Mode;
             if (ImGui.Combo("Rate limit mode", ref modeIndex, "Rolling window\0Fixed window\0"))
             {
-                Config.EmoteChatNotificationRateLimitMode = (EmoteChatNotificationRateLimitMode)modeIndex;
+                EmoteConfigValues.ChatRateLimit.Mode = (EmoteChatNotificationRateLimitMode)modeIndex;
                 _configService.Save();
             }
 
-            var maxCount = Config.EmoteChatNotificationRateLimitMaxCount;
+            var maxCount = EmoteConfigValues.ChatRateLimit.MaxCount;
             if (ImGui.InputInt("Max notifications per emote window", ref maxCount))
             {
-                Config.EmoteChatNotificationRateLimitMaxCount = Math.Clamp(maxCount, 1, 1000);
+                EmoteConfigValues.ChatRateLimit.MaxCount = Math.Clamp(maxCount, 1, 1000);
                 _configService.Save();
             }
 
-            var windowSeconds = Config.EmoteChatNotificationRateLimitWindowSeconds;
+            var windowSeconds = EmoteConfigValues.ChatRateLimit.WindowSeconds;
             if (ImGui.InputInt("Window (seconds)", ref windowSeconds))
             {
-                Config.EmoteChatNotificationRateLimitWindowSeconds = Math.Clamp(windowSeconds, 1, 3600);
+                EmoteConfigValues.ChatRateLimit.WindowSeconds = Math.Clamp(windowSeconds, 1, 3600);
                 _configService.Save();
             }
         }
 
         ImGui.Separator();
         ImGui.TextUnformatted("Overlay window:");
-        var enableOverlay = Config.EnableEmoteOverlayWindow;
+        var enableOverlay = EmoteConfigValues.EnableOverlayWindow;
         if (ImGui.Checkbox("Enable emote overlay window", ref enableOverlay))
         {
-            Config.EnableEmoteOverlayWindow = enableOverlay;
+            EmoteConfigValues.EnableOverlayWindow = enableOverlay;
             _configService.Save();
         }
     }
 
     private void EmoteSoundConfig()
     {
-        var soundEnabled = Config.EnableEmoteSoundNotification;
+        var soundEnabled = EmoteConfigValues.EnableSoundNotification;
         if(ImGui.Checkbox("Enable sound notification on emote", ref soundEnabled))
         {
-            Config.EnableEmoteSoundNotification = soundEnabled;
+            EmoteConfigValues.EnableSoundNotification = soundEnabled;
             _configService.Save();
         }
 
         ImGui.TextUnformatted("Sound to play (SE.1 - SE.16)");
-        var selectedIndex = _configService.Configuration.EmoteSoundNotificationId;
+        var selectedIndex = _configService.Settings.Emote.SoundNotificationId;
         using (var combo = ImRaii.Combo("##ohhey_config_combo_emote_sound", $"SE.{selectedIndex}"))
         {
             if (combo)
@@ -304,7 +313,7 @@ public class ConfigurationWindow : Window
                     if (ImGui.Selectable($"SE.{i}", isSelected))
                     {
                         selectedIndex = (uint)i;
-                        Config.EmoteSoundNotificationId = selectedIndex;
+                        EmoteConfigValues.SoundNotificationId = selectedIndex;
                         _configService.Save();
                     }
 
@@ -318,7 +327,7 @@ public class ConfigurationWindow : Window
         ImGui.SameLine();
         if (ImGui.ArrowButton("##ohhey_config_button_emote_sound_play", ImGuiDir.Right))
         {
-            UIGlobals.PlayChatSoundEffect(_configService.Configuration.EmoteSoundNotificationId);
+            UIGlobals.PlayChatSoundEffect(_configService.Settings.Emote.SoundNotificationId);
         }
 
         if (ImGui.IsItemHovered())
@@ -383,7 +392,7 @@ public class ConfigurationWindow : Window
             ImGui.TableSetColumnIndex(1);
             ImGui.TextUnformatted(emote.InitiatorName.ToString());
             ImGui.TableSetColumnIndex(2);
-            ImGui.TextUnformatted(emote.EmoteName.ToString());
+            ImGui.TextUnformatted(_emoteService.GetEmoteDisplayName(emote.EmoteId));
             ImGui.TableSetColumnIndex(3);
             ImGui.TextUnformatted(emote.TargetName?.ToString() ?? "Unknown");
         }

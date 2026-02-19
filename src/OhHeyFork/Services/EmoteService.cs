@@ -33,6 +33,7 @@ public sealed class EmoteService : IDisposable
     private readonly IGameConfig _gameConfig;
     private readonly ITargetManager _targetManager;
     private readonly IObjectTable _objectTable;
+    private readonly IDataManagerCacheService _dataManagerCacheService;
     private readonly Dictionary<ushort, Queue<DateTime>> _emoteChatNotificationTimes = new();
     private readonly Dictionary<ushort, FixedWindowState> _emoteChatFixedWindowState = new();
     private readonly object _replayDebugLock = new();
@@ -51,13 +52,12 @@ public sealed class EmoteService : IDisposable
     private string? _lastReplayStatus;
     private bool _lastReplaySilent;
     private readonly LinkedList<EmoteEvent> _recentEmotes = new();
-    private readonly Dictionary<uint, string> _worlds;
 
     public LinkedList<EmoteEvent> EmoteHistory { get; } = [];
 
     public EmoteService(IPluginLog logger, EmoteListener emoteListener, ChatListener chatListener, IChatGui chatGui,
         IEmoteLogMessageService emoteLogMessageService, ConfigurationService configService, ICondition condition,
-        IPlayerState playerState, IDataManager dataManager, ITargetManager targetManager, IObjectTable objectTable,
+        IPlayerState playerState, IDataManagerCacheService dataManagerCacheService, ITargetManager targetManager, IObjectTable objectTable,
         IGameConfig gameConfig)
     {
         _logger = logger;
@@ -71,9 +71,7 @@ public sealed class EmoteService : IDisposable
         _gameConfig = gameConfig;
         _targetManager = targetManager;
         _objectTable = objectTable;
-        _worlds = dataManager
-            .GetExcelSheet<Lumina.Excel.Sheets.World>()
-            .ToDictionary(world => world.RowId, world => world.Name.ToString());
+        _dataManagerCacheService = dataManagerCacheService;
 
         _emoteListener.Emote += OnEmote;
         _emoteListener.ClickEmoteLink += OnClickedEmoteLink;
@@ -82,8 +80,9 @@ public sealed class EmoteService : IDisposable
 
     private void OnEmote(object? sender, EmoteEvent e)
     {
+        var emoteDisplayName = _dataManagerCacheService.GetEmoteDisplayName(e.EmoteId);
         _logger.Debug("Emote: {EmoteName} (ID: {EmoteId}) from {InitiatorName} (ID: {InitiatorId}) to {TargetName} (ID: {TargetId})",
-            e.EmoteName.ToString(), e.EmoteId,
+            emoteDisplayName, e.EmoteId,
             e.InitiatorName.ToString(), e.InitiatorId,
             e.TargetName?.ToString() ?? "Unknown", e.TargetId);
         if (!e.TargetSelf) return;
@@ -119,19 +118,20 @@ public sealed class EmoteService : IDisposable
 
     private void NotifyEmoteUsed(EmoteEvent e)
     {
-        if (!_configService.Configuration.EnableEmoteNotifications) return;
-        if (e.InitiatorIsSelf && !_configService.Configuration.NotifyOnSelfEmote) return;
-        if (!_configService.Configuration.EnableEmoteNotificationInCombat && _condition[ConditionFlag.InCombat]) return;
+        if (!_configService.Settings.Emote.EnableNotifications) return;
+        if (e.InitiatorIsSelf && !_configService.Settings.Emote.NotifyOnSelf) return;
+        if (!_configService.Settings.Emote.EnableNotificationInCombat && _condition[ConditionFlag.InCombat]) return;
         if (!TryConsumeEmoteChatRateLimitSlot(e)) return;
+        var emoteDisplayName = _dataManagerCacheService.GetEmoteDisplayName(e.EmoteId);
         var builder = new SeStringBuilder();
         builder.AddUiForeground("[Oh Hey!] ", 537);
         builder.AddUiForegroundOff();
         builder.Add(new PlayerPayload(e.InitiatorName.ToString(), e.InitiatorWorldId));
 
         if (
-            _configService.Configuration.ShowWorldNameInChatNotifications &&
+            _configService.Settings.NotificationDisplay.ShowWorldNameInChatNotifications &&
             _playerState.HomeWorld.RowId != e.InitiatorWorldId &&
-            _worlds.TryGetValue(e.InitiatorWorldId, out string? worldName) &&
+            _dataManagerCacheService.TryGetWorldName(e.InitiatorWorldId, out string? worldName) &&
             !string.IsNullOrEmpty(worldName)
         ) {
             builder.AddIcon(BitmapFontIcon.CrossWorld);
@@ -139,7 +139,7 @@ public sealed class EmoteService : IDisposable
         }
 
         builder.AddText(" used ");
-        builder.AddUiForeground(e.EmoteName.ToString(), 1);
+        builder.AddUiForeground(emoteDisplayName, 1);
         builder.AddUiForegroundOff();
         builder.AddText(" on you!");
         if (CanShowReplayLink(e.EmoteId))
@@ -148,28 +148,28 @@ public sealed class EmoteService : IDisposable
             var silentReplayLinkPayload = _emoteListener.AddTemporaryReplayLink(e, silentReplay: true);
             builder.AddText(" ");
             builder.Add(replayLinkPayload);
-            builder.AddUiForeground($"[Replay {e.EmoteName}]", 45);
+            builder.AddUiForeground($"[Replay {emoteDisplayName}]", 45);
             builder.AddUiForegroundOff();
             builder.Add(RawPayload.LinkTerminator);
             builder.AddText(" ");
             builder.Add(silentReplayLinkPayload);
-            builder.AddUiForeground($"[Silent {e.EmoteName}]", 45);
+            builder.AddUiForeground($"[Silent {emoteDisplayName}]", 45);
             builder.AddUiForegroundOff();
             builder.Add(RawPayload.LinkTerminator);
         }
-        PrintChatMessage(_configService.Configuration.EmoteNotificationChatType, builder.Build());
+        PrintChatMessage(_configService.Settings.Emote.NotificationChatType, builder.Build());
 
-        if (!_configService.Configuration.EnableEmoteSoundNotification) return;
-        UIGlobals.PlayChatSoundEffect(_configService.Configuration.EmoteSoundNotificationId);
+        if (!_configService.Settings.Emote.EnableSoundNotification) return;
+        UIGlobals.PlayChatSoundEffect(_configService.Settings.Emote.SoundNotificationId);
     }
 
     public EmoteChatRateLimitStatus GetEmoteChatRateLimitStatus()
     {
-        var configuration = _configService.Configuration;
-        var enabled = configuration.EnableEmoteChatNotificationRateLimit;
-        var windowSeconds = ClampRateLimitWindowSeconds(configuration.EmoteChatNotificationRateLimitWindowSeconds);
-        var maxCount = ClampRateLimitMaxCount(configuration.EmoteChatNotificationRateLimitMaxCount);
-        var mode = configuration.EmoteChatNotificationRateLimitMode;
+        var configuration = _configService.Settings.Emote.ChatRateLimit;
+        var enabled = configuration.Enabled;
+        var windowSeconds = ClampRateLimitWindowSeconds(configuration.WindowSeconds);
+        var maxCount = ClampRateLimitMaxCount(configuration.MaxCount);
+        var mode = configuration.Mode;
         var now = DateTime.UtcNow;
         int currentCount = 0;
         DateTime? nextAllowedUtc = null;
@@ -220,6 +220,9 @@ public sealed class EmoteService : IDisposable
         _lastEmoteId = null;
         _lastEmoteName = null;
     }
+
+    public string GetEmoteDisplayName(ushort emoteId)
+        => _dataManagerCacheService.GetEmoteDisplayName(emoteId);
 
     public void Dispose()
     {
@@ -291,12 +294,17 @@ public sealed class EmoteService : IDisposable
 
     private bool ShouldSuppressRenderedStandardEmoteChatLine()
     {
-        if (!_configService.Configuration.EnableEmoteNotifications)
+        if (!_configService.Settings.Emote.EnableNotifications)
         {
             return false;
         }
 
-        if (!_configService.Configuration.EnableEmoteNotificationInCombat && _condition[ConditionFlag.InCombat])
+        if (!_configService.Settings.Emote.SuppressDuplicateTargetedChatLine)
+        {
+            return false;
+        }
+
+        if (!_configService.Settings.Emote.EnableNotificationInCombat && _condition[ConditionFlag.InCombat])
         {
             return false;
         }
@@ -494,7 +502,7 @@ public sealed class EmoteService : IDisposable
     {
         if (!e.TargetSelf) return false;
         if (!e.InitiatorIsSelf) return true;
-        return _configService.Configuration.ShowSelfEmote;
+        return _configService.Settings.Emote.ShowSelf;
     }
 
     private void AddEmoteToRecent(EmoteEvent e)
@@ -515,16 +523,16 @@ public sealed class EmoteService : IDisposable
 
     private bool TryConsumeEmoteChatRateLimitSlot(EmoteEvent e)
     {
-        var configuration = _configService.Configuration;
-        if (!configuration.EnableEmoteChatNotificationRateLimit) return true;
+        var configuration = _configService.Settings.Emote.ChatRateLimit;
+        if (!configuration.Enabled) return true;
 
-        var windowSeconds = ClampRateLimitWindowSeconds(configuration.EmoteChatNotificationRateLimitWindowSeconds);
-        var maxCount = ClampRateLimitMaxCount(configuration.EmoteChatNotificationRateLimitMaxCount);
-        var mode = configuration.EmoteChatNotificationRateLimitMode;
+        var windowSeconds = ClampRateLimitWindowSeconds(configuration.WindowSeconds);
+        var maxCount = ClampRateLimitMaxCount(configuration.MaxCount);
+        var mode = configuration.Mode;
         var now = DateTime.UtcNow;
         var emoteId = e.EmoteId;
         _lastEmoteId = emoteId;
-        _lastEmoteName = e.EmoteName.ToString();
+        _lastEmoteName = _dataManagerCacheService.GetEmoteDisplayName(emoteId);
 
         if (mode == EmoteChatNotificationRateLimitMode.FixedWindow)
         {

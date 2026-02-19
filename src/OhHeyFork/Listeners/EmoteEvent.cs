@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 using Dalamud.Game.Text.SeStringHandling;
-using Lumina.Text.ReadOnly;
 
 namespace OhHeyFork.Listeners;
 
 public record EmoteEvent(
-    ReadOnlySeString EmoteName,
     ushort EmoteId,
     uint EmoteIconId,
     SeString InitiatorName,
