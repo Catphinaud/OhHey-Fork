@@ -67,17 +67,7 @@ public sealed class DataManagerCacheService : IDataManagerCacheService
         => _allEmotes;
 
     private static string BuildDisplayName(ushort emoteId, string rawName)
-    {
-        if (string.IsNullOrWhiteSpace(rawName))
-        {
-            return BuildFallbackEmoteName(emoteId);
-        }
-
-        var cleaned = new string(rawName.Where(char.IsLetterOrDigit).ToArray());
-        return cleaned.Length == 0
-            ? BuildFallbackEmoteName(emoteId)
-            : cleaned;
-    }
+        => string.IsNullOrWhiteSpace(rawName) || !rawName.Any(char.IsLetterOrDigit) ? BuildFallbackEmoteName(emoteId) : rawName;
 
     private static string BuildFallbackEmoteName(ushort emoteId)
         => emoteId switch
